@@ -3,7 +3,6 @@ import sys
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
-from rich.prompt import Prompt
 from app.brain import Brain
 
 console = Console()
