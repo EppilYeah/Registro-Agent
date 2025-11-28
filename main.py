@@ -9,9 +9,11 @@ from app.brain import Brain
 console = Console()
 
 def limpar_tela():
+    '''limpa o console'''
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def cabecalho():
+    '''cria o cabeçalho'''
     titulo = Text("REGISTRO v1.0", justify="center", style="bold white")
     subtitulo = Text("CONEXÃO ATIVA • MEMORIA SINCRONIZADA", justify="center", style="dim white")
     
@@ -33,7 +35,7 @@ with console.status("[bold yellow]INICIANDO PROTOCOLO NEURAIS...", spinner="dots
         console.print(f"[bold red]ERRO FATAL AO INICIAR:[/bold red] {e}")
         sys.exit()
 
-console.print("") 
+console.print("")
 
 
 while True:

@@ -1,12 +1,12 @@
 import json
 from datetime import datetime
-from google.ai.generativelanguage_v1beta.types import content
 import google.generativeai as genai
 import config
 
 
 
 class Brain:
+    '''Responsavel por toda parte logica de processamento e pensamento'''
     def __init__(self):
         genai.configure(api_key=config.API_KEY)
         self.caminho_memoria = "data/brain.jsonl"
@@ -20,8 +20,9 @@ class Brain:
             }
         with open(self.caminho_memoria, 'a', encoding='utf-8') as f:
             f.write(json.dumps(mensagem, ensure_ascii=False) + "\n")
-    
+
     def processar_entrada(self, prompt_usuario):
+        '''Processa o prompt do usuario e traduz pra IA'''
         self._registrar_memoria(prompt_usuario, "Luis")
         response = self.chat.send_message(prompt_usuario) 
         texto_limpo = response.text.replace("```json", "").replace("```", "").strip()
@@ -29,10 +30,14 @@ class Brain:
         texto_dados_ia = dados_ia["texto_resposta"]
         self._registrar_memoria(texto_dados_ia, "REGISTRO")
         return dados_ia
-        
+
     def carregar_modelo_seguro(self):
+        '''Inicializa a IA com as configurações e testa os modelos disponiveis'''
         config_json = {
-            "response_mime_type": "application/json"
+            "response_mime_type": "application/json", #converte automaticamente tudo pra json
+            "temperature": 1.0,
+            "top_p": 0.95,        #variedade vocabulario
+            "top_k": 40           #criatividade escolhas
         }
         for nome_modelo in config.LISTA_MODELOS:
             try:
@@ -49,12 +54,13 @@ class Brain:
                 print(f"ERRO AO INICIAR - {e}")
                 continue
         raise Exception("IMPOSSIVEL INICIAR REGISTRO - ABORTANDO OPERAÇÃO")
-    
+
     def carregar_memoria(self):
+        '''Carrega a memoria da IA'''
         historico = []
         historico.append({
             "role": "user", 
-            "parts": [config.PROMPT_PERSONALIDADE] # Ou PROMPT_PERSONALIDADE, confira o nome no config
+            "parts": [config.PROMPT_PERSONALIDADE]
         })
         historico.append({
             "role": "model", 
@@ -69,7 +75,7 @@ class Brain:
                         role = "model"
                     else:
                         role = "user"
-                    
+
                     pacote_IA = {
                         "role" : role,
                         "parts" : [dados["texto"]]
