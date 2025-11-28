@@ -7,4 +7,4 @@ while True:
     if prompt == "sair": 
         break
     resposta = REGISTRO.processar_entrada(prompt)
-    print("\n\n\n" + resposta)
+    print(f"\n\n\n {resposta['texto_resposta']}")
