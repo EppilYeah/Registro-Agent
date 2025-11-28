@@ -9,7 +9,7 @@ class Brain:
     def __init__(self):
         genai.configure(api_key=config.API_KEY)
         self.caminho_memoria = "data/brain.jsonl"
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = self.carregar_modelo_seguro()
         personalidade = [
             {"role" : "user", "parts" : [config.PROMPT_PERSONALIDADE]},
             {"role" : "model", "parts": ['{"emocao": "neutro", "texto_resposta": "REGISTRO INICIADO"}']}
