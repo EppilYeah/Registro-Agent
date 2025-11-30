@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from face import Rosto # Importando o arquivo novo
+from face import Rosto 
 
 class Interface(ctk.CTk):
     def __init__(self):
