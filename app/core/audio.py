@@ -71,20 +71,20 @@ class AudioHandler:
         
         
         VOZ = "pt-BR-FranciscaNeural" 
-
-        rate = "+0%"
-        pitch = "+0Hz"
+        
+        rate = "-5%"
+        pitch = "-10Hz"
 
         if emocao == "sarcasmo_tedio":
-            rate = "-15%"  # Fala arrastado
-            pitch = "-5Hz" # Tom mais grave/tédio
+            rate = "-15%" 
+            pitch = "-10Hz" 
         
         elif emocao == "irritado":
-            rate = "+10%"  # Fala rápido/agressivo
-            pitch = "+5Hz" # Tom mais tenso
+            rate = "+10%"  
+            pitch = "+5Hz" 
             
         elif emocao == "feliz" or emocao == "arrogante":
-            rate = "+5%"   # Energético
+            rate = "+5%"  
             pitch = "+2Hz" 
             
         elif emocao == "confuso":
@@ -97,12 +97,8 @@ class AudioHandler:
 
             # Função assíncrona com parâmetros SSML
             async def gerar_audio():
-                comunicar = edge_tts.Communicate(
-                    texto, 
-                    VOZ, 
-                    rate=rate, 
-                    pitch=pitch
-                )
+                
+                comunicar = edge_tts.Communicate(texto, VOZ, rate=rate, pitch=pitch)
                 await comunicar.save(nome_arquivo)
 
             asyncio.run(gerar_audio())
