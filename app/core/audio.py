@@ -27,7 +27,7 @@ class AudioHandler:
         
         self.recognizer = sr.Recognizer()
         self.recognizer.energy_threshold = 300  # Sensibilidade 
-        self.recognizer.pause_threshold = 1.5   # Espera 1.5s de silêncio antes de cortar
+        self.recognizer.pause_threshold = 1.5   # Espera antes de cortar
         self.recognizer.dynamic_energy_threshold = True
         
     def ouvir_wake_word(self):
@@ -72,7 +72,7 @@ class AudioHandler:
         
         VOZ = "pt-BR-FranciscaNeural" 
         
-        rate = "-5%"
+        rate = "-10%"
         pitch = "-10Hz"
 
         if emocao == "sarcasmo_tedio":
@@ -81,15 +81,15 @@ class AudioHandler:
         
         elif emocao == "irritado":
             rate = "+10%"  
-            pitch = "+5Hz" 
+            pitch = "-5Hz" 
             
         elif emocao == "feliz" or emocao == "arrogante":
             rate = "+5%"  
-            pitch = "+2Hz" 
+            pitch = "-10Hz" 
             
         elif emocao == "confuso":
             rate = "-5%"
-            pitch = "+0Hz"
+            pitch = "-10Hz"
 
         try:
             if os.path.exists(nome_arquivo):
