@@ -1,0 +1,73 @@
+import speech_recognition as sr  # Transcrever o que eu falo (Google)
+import pvporcupine               # Wake word
+import pyaudio                   # Driver pra conectar o mic
+import struct                    # Conversor de audio pro porcupine
+import os                        # pra apagar o mp3 temporario
+from gtts import gTTS            # voz TTS
+from playsound import playsound  # tocador de audio
+import config                    # chaves API
+
+
+class AudioHandler:
+    def __init__(self):
+        self.pvporcupine = pvporcupine.create(keyword_paths=["app/core/REGISTRO_pt_windows_v3_0_0.ppn"], access_key=config.PICOVOICE_KEY)
+        self.pa = pyaudio.PyAudio()
+        self.stream = self.pa.open(
+            rate=self.pvporcupine.sample_rate,
+            frames_per_buffer=self.pvporcupine.frame_length,
+            channels=1,
+            format=pyaudio.paInt16,
+            input=True
+        )
+        
+        self.recognizer = sr.Recognizer()
+        
+    def ouvir_wake_word(self):
+        while True:
+            listening = self.stream.read(self.pvporcupine.frame_length)
+            listening = struct.unpack_from("h" * self.pvporcupine.frame_length, listening)
+            resultado = self.pvporcupine.process(listening)
+            if resultado >= 0:
+                return True
+    
+    def ouvir_comando(self):
+        if self.stream.is_active():
+            self.stream.stop_stream()
+        with sr.Microphone() as source:
+            self.recognizer.adjust_for_ambient_noise(source, duration = 0.5)
+            try:
+                audio = self.recognizer.listen(source, timeout=5)
+                comando = self.recognizer.recognize_google(audio, language="pt-BR")
+                print(f"COMANDO: {comando}")
+                return comando
+            except sr.WaitTimeoutError:
+                print("⏰ Ninguém falou nada.")
+                return None
+            except sr.UnknownValueError:
+                print("❌ Não entendi o áudio.")
+                return None
+            except sr.RequestError:
+                print("🌐 Sem internet ou erro no Google.")
+                return None
+            except Exception as e:
+                print(f"⚠️ Erro genérico: {e}")
+                return None
+            
+    def falar(self, texto):
+        print(f"COMANDO: {texto}")
+        nome_arquivo = "resposta_temp.mp3"
+        
+        try:
+            tts = gTTS(text=texto, lang='pt', slow=False)
+            
+            if os.path.exists(nome_arquivo):
+                os.remove(nome_arquivo)
+                
+            tts.save(nome_arquivo)
+            
+            playsound(nome_arquivo)
+            
+            os.remove(nome_arquivo)
+            
+        except Exception as e:
+            print(f"ERRO NO AUDIO: {e}")
