@@ -28,7 +28,7 @@ def ciclo_principal():
                     emocao_final = resposta["emocao"]
                     
                     app_visual.rosto.definir_emocao(emocao_final)
-                    audio.falar(texto_final)
+                    audio.falar(texto_final, emocao_final)
                 else:
                     app_visual.atualizar_texto("Não entendi.")
                     time.sleep(1)

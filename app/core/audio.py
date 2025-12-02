@@ -65,28 +65,49 @@ class AudioHandler:
                 if self.stream.is_stopped():
                     self.stream.start_stream()
             
-    def falar(self, texto):
+    def falar(self, texto, emocao="neutro"):
         print(f"🔊 Falando: {texto}")
         nome_arquivo = "resposta_temp.mp3"
         
         
         VOZ = "pt-BR-FranciscaNeural" 
 
-        try:
+        rate = "+0%"
+        pitch = "+0Hz"
+
+        if emocao == "sarcasmo_tedio":
+            rate = "-15%"  # Fala arrastado
+            pitch = "-5Hz" # Tom mais grave/tédio
+        
+        elif emocao == "irritado":
+            rate = "+10%"  # Fala rápido/agressivo
+            pitch = "+5Hz" # Tom mais tenso
             
+        elif emocao == "feliz" or emocao == "arrogante":
+            rate = "+5%"   # Energético
+            pitch = "+2Hz" 
+            
+        elif emocao == "confuso":
+            rate = "-5%"
+            pitch = "+0Hz"
+
+        try:
             if os.path.exists(nome_arquivo):
                 os.remove(nome_arquivo)
 
-
+            # Função assíncrona com parâmetros SSML
             async def gerar_audio():
-                comunicar = edge_tts.Communicate(texto, VOZ)
+                comunicar = edge_tts.Communicate(
+                    texto, 
+                    VOZ, 
+                    rate=rate, 
+                    pitch=pitch
+                )
                 await comunicar.save(nome_arquivo)
-
 
             asyncio.run(gerar_audio())
             
             playsound(nome_arquivo)
-            
             os.remove(nome_arquivo)
             
         except Exception as e:
