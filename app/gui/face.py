@@ -88,124 +88,160 @@ class Rosto(ctk.CTkCanvas):
             self.alvo_atual = self.emocoes["neutro"].copy()
             self.desenhar(jx=0, jy=0)
 
-    def _desenhar_olho_pontilhado(self, centro_x, centro_y, largura, altura):
-        raio_x = largura / 2
-        raio_y = altura / 2
-        
-        for i in range(self.quantidade_pontos):
-            angulo = (2 * math.pi / self.quantidade_pontos) * i
-            
-            # Calcula e já converte para INTEIRO (int)
-            x = int(centro_x + raio_x * math.cos(angulo))
-            y = int(centro_y + raio_y * math.sin(angulo))
-            
-            raio_ponto = self.tamanho_ponto / 2
-            
-            self.create_oval(
-                x - raio_ponto, y - raio_ponto, 
-                x + raio_ponto, y + raio_ponto, 
-                fill=self.cor_led, outline=""
-            )
 
-    def desenhar(self, jx, jy):
-        """Limpa a tela e desenha o rosto baseado no self.estado_atual"""
+    def desenhar(self, jx=0, jy=0):
+        """
+        Limpa a tela e desenha o rosto centralizado E ESCALADO dinamicamente.
+        Agora o rosto cresce junto com a janela.
+        """
         self.delete("all")
         
+        # DESCOBRE O TAMANHO ATUAL
+        largura_tela = self.winfo_width()
+        altura_tela = self.winfo_height()
+        
+        # Proteção contra inicialização zero
+        if largura_tela < 2: largura_tela = 400
+        if altura_tela < 2: altura_tela = 300
+
+        #  CALCULA O CENTRO
+        cx = largura_tela / 2
+        cy = altura_tela / 2
+
+        # CÁLCULO DO FATOR DE MULTIPLICAÇÃO
+        LARGURA_BASE = 400.0
+        
+        # Calcula o fator baseado na largura.
+        fator = max(largura_tela / LARGURA_BASE, 0.5)
+        
+        distancia_olhos_padrao = 85.0
+        dist = distancia_olhos_padrao * fator
+        
+        offset_olhos_y_padrao = -40.0
+        off_olhos_y = offset_olhos_y_padrao * fator
+        
+        largura_olho_padrao = 90.0
+        larg_olho = largura_olho_padrao * fator
+        
+        largura_sob_padrao = 40.0
+        larg_sob = largura_sob_padrao * fator
+        
+        distancia_sob_y_padrao = -50.0
+        dist_sob_y = distancia_sob_y_padrao * fator
+        
+        raio_pupila_padrao = 7.0
+        r_pupila = raio_pupila_padrao * fator
+        
+        offset_boca_y_padrao = 80.0
+        off_boca_y = offset_boca_y_padrao * fator
+        
+        largura_boca_padrao = 50.0
+        larg_boca = largura_boca_padrao * fator
+
+        # VARIÁVEIS DE ESTADO
         abertura = self.estado_atual.get("abertura_olho", 100)
-        pupila_x = self.estado_atual.get("pupila_x", 0)
-        pupila_y = self.estado_atual.get("pupila_y", 0)
+        # Os tremores (jx, jy) e movimentos da pupila também precisam escalar para não parecerem pequenos demais na tela grande
+        pupila_x = (self.estado_atual.get("pupila_x", 0) + jx) * fator 
+        pupila_y = (self.estado_atual.get("pupila_y", 0) + jy) * fator
         curvatura = self.estado_atual.get("boca_curvatura", 0)
         
-        sob_y_offset = self.estado_atual.get("sobrancelha_y", 0)
-        sob_inclinacao = self.estado_atual.get("sobrancelha_inclinacao", 0)
-
-        #COORDENADAS BASE
-        centro_olho_esq_x = 110 + jx
-        centro_olho_esq_y = 110 + jy
+        sob_y_offset = (self.estado_atual.get("sobrancelha_y", 0) + jy) * fator
+        # Inclinacao escala menos para não ficar exagerada
+        sob_inclinacao = (self.estado_atual.get("sobrancelha_inclinacao", 0)) * (fator * 0.8) 
         
-        centro_olho_dir_x = 280 + jx
-        centro_olho_dir_y = 110 + jy
+        boca_off_x = (self.estado_atual.get("boca_offset_x", 0) + jx) * fator
+        boca_off_y = (self.estado_atual.get("boca_offset_y", 0) + jy) * fator
 
-        largura_olho = 90
+        # COORDENADAS FINAIS 
+        centro_olho_esq_x = cx - dist
+        centro_olho_esq_y = cy + off_olhos_y
+        
+        centro_olho_dir_x = cx + dist
+        centro_olho_dir_y = cy + off_olhos_y
 
         # SOBRANCELHAS
-        largura_sob = 40
-        base_sob_y = 60 + sob_y_offset
+        base_sob_y = centro_olho_esq_y + dist_sob_y + sob_y_offset
+        grossura_linha = self.tamanho_ponto * fator 
 
-        # Sobrancelha Esquerda
+        # Esq
         self.create_line(
-            centro_olho_esq_x - largura_sob, base_sob_y - sob_inclinacao,
-            centro_olho_esq_x + largura_sob, base_sob_y + sob_inclinacao,
-            fill=self.cor_led, width=self.tamanho_ponto, 
-            capstyle="round" # Linhas retas aceitam capstyle!
+            centro_olho_esq_x - larg_sob, base_sob_y - sob_inclinacao,
+            centro_olho_esq_x + larg_sob, base_sob_y + sob_inclinacao,
+            fill=self.cor_led, width=grossura_linha, capstyle="round"
         )
-        # Sobrancelha Direita
+        # Dir
         self.create_line(
-            centro_olho_dir_x - largura_sob, base_sob_y + sob_inclinacao,
-            centro_olho_dir_x + largura_sob, base_sob_y - sob_inclinacao,
-            fill=self.cor_led, width=self.tamanho_ponto, 
-            capstyle="round"
+            centro_olho_dir_x - larg_sob, base_sob_y + sob_inclinacao,
+            centro_olho_dir_x + larg_sob, base_sob_y - sob_inclinacao,
+            fill=self.cor_led, width=grossura_linha, capstyle="round"
         )
 
-        # OLHOS 
-        self._desenhar_olho_pontilhado(centro_olho_esq_x, centro_olho_esq_y, largura_olho, abertura)
-        
-        # Pupila Esquerda
+        #OLHOS
+        self._desenhar_olho_pontilhado(centro_olho_esq_x, centro_olho_esq_y, larg_olho, abertura, fator)
         self.create_oval(
-            centro_olho_esq_x - 7 + pupila_x, centro_olho_esq_y - 7 + pupila_y,
-            centro_olho_esq_x + 7 + pupila_x, centro_olho_esq_y + 7 + pupila_y,
+            centro_olho_esq_x - r_pupila + pupila_x, centro_olho_esq_y - r_pupila + pupila_y,
+            centro_olho_esq_x + r_pupila + pupila_x, centro_olho_esq_y + r_pupila + pupila_y,
             fill=self.cor_led, outline=self.cor_led
         )
 
-        # Olho Direito
-        self._desenhar_olho_pontilhado(centro_olho_dir_x, centro_olho_dir_y, largura_olho, abertura)
-
-        # Pupila Direita
+        self._desenhar_olho_pontilhado(centro_olho_dir_x, centro_olho_dir_y, larg_olho, abertura, fator)
         self.create_oval(
-            centro_olho_dir_x - 7 + pupila_x, centro_olho_dir_y - 7 + pupila_y,
-            centro_olho_dir_x + 7 + pupila_x, centro_olho_dir_y + 7 + pupila_y,
+            centro_olho_dir_x - r_pupila + pupila_x, centro_olho_dir_y - r_pupila + pupila_y,
+            centro_olho_dir_x + r_pupila + pupila_x, centro_olho_dir_y + r_pupila + pupila_y,
             fill=self.cor_led, outline=self.cor_led
         )
 
-        # BOCA
-        base_boca_x = 195 + jx
-        base_boca_y = 230 + jy
+        #BOCA
+        base_boca_x = cx
+        base_boca_y = cy + off_boca_y
         
-        # Pega offsets ou usa 0
-        off_x = self.estado_atual.get("boca_offset_x", 0)
-        off_y = self.estado_atual.get("boca_offset_y", 0)
-
-        centro_boca_x = base_boca_x + off_x
-        centro_boca_y = base_boca_y + off_y
+        centro_boca_x = base_boca_x + boca_off_x
+        centro_boca_y = base_boca_y + boca_off_y
         
-        largura_boca = 50
-        espacamento_boca = (1, 5)
+        dash_len = max(1, int(1 * fator))
+        dash_gap = max(2, int(5 * fator))
+        espacamento_boca = (dash_len, dash_gap)
 
-        # Se a curvatura for muito pequena (entre -5 e 5), travamos em 0 para não bugar
-        if abs(curvatura) < 5:
-            # Desenha RETA
+        if abs(curvatura) < 1:
             self.create_line(
-                int(centro_boca_x - (largura_boca // 2)), int(centro_boca_y),
-                int(centro_boca_x + (largura_boca // 2)), int(centro_boca_y),
-                fill=self.cor_led, width=self.tamanho_ponto, 
-                dash=espacamento_boca, capstyle="round"
+                centro_boca_x - (larg_boca / 2.0), centro_boca_y,
+                centro_boca_x + (larg_boca / 2.0), centro_boca_y,
+                fill=self.cor_led, width=grossura_linha, dash=espacamento_boca, capstyle="round"
             )
         else:
-            # Desenha ARCO
-            ajuste_y = -15 if curvatura > 0 else -15
-            
-            # Proteção: Extent não pode ser 0, senão some.
-            extent_final = curvatura
-            if abs(extent_final) < 1: extent_final = 1 
+            ajuste_y_padrao = -15.0 if curvatura > 0 else -15.0
+            ajuste_y = ajuste_y_padrao * fator
+            altura_arco_padrao = 30.0
+            altura_arco = altura_arco_padrao * fator
 
             self.create_arc(
-                int(centro_boca_x - (largura_boca // 2)), int(centro_boca_y + ajuste_y), 
-                int(centro_boca_x + (largura_boca // 2)), int(centro_boca_y + ajuste_y + 30), 
-                start=180, 
-                extent=extent_final, 
-                style="arc", 
-                outline=self.cor_led, width=self.tamanho_ponto, 
-                dash=espacamento_boca
+                centro_boca_x - (larg_boca / 2.0), centro_boca_y + ajuste_y, 
+                centro_boca_x + (larg_boca / 2.0), centro_boca_y + ajuste_y + altura_arco, 
+                start=180, extent=curvatura, style="arc", 
+                outline=self.cor_led, width=grossura_linha, dash=espacamento_boca
+            )
+
+    def _desenhar_olho_pontilhado(self, cx, cy, largura_total, abertura_percent, fator_escala):
+        """Desenha o contorno do olho usando pequenos pontos (LEDs), também escalado."""
+        altura_total = largura_total * 0.6 
+        altura_atual = altura_total * (abertura_percent / 100.0)
+        
+        num_pontos = 16 
+        
+        
+        tamanho_led_base = 3.0
+        tamanho_led = tamanho_led_base * fator_escala
+
+        for i in range(num_pontos):
+            angulo = (2 * math.pi / num_pontos) * i
+            
+            px = cx + (largura_total / 2) * math.cos(angulo)
+            py = cy + (altura_atual / 2) * math.sin(angulo)
+            
+            self.create_oval(
+                px - (tamanho_led/2), py - (tamanho_led/2), 
+                px + (tamanho_led/2), py + (tamanho_led/2), 
+                fill=self.cor_led, outline=""
             )
             
     def animar(self):
