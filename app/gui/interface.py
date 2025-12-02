@@ -22,10 +22,4 @@ class Interface(ctk.CTk):
                                   font=("Courier", 16), bg_color=cor_fundo_rosto)
         self.label.place(relx=0.5, rely=0.9, anchor="center")
 
-        # --- TESTE TEMPORÁRIO DE EMOÇÃO ---
-        # Tente mudar para "feliz", "irritado", "sarcasmo_tedio" aqui para ver se muda!
-        self.rosto.definir_emocao("arrogante")
 
-if __name__ == "__main__":
-    app = Interface()
-    app.mainloop()
