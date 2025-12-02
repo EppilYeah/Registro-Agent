@@ -2,8 +2,8 @@ API_KEY = "***REMOVED***"
 PICOVOICE_KEY = "pjQ/YAwPpwGCdSan5NSSO4zOgrawDhQM0kZYmvFtivrqJkH7YYtIpA=="
 LISTA_MODELOS = [
     "gemini-3.0-pro-preview",
-    "gemini-2.5-pro",
     "gemini-2.5-flash",
+    "gemini-2.5-pro",
 ]
 
 PROMPT_PERSONALIDADE = """
