@@ -11,33 +11,58 @@ audio = AudioHandler()
 
 def ciclo_principal():
     app_visual.rosto.definir_emocao("neutro")
+    app_visual.atualizar_texto("Aguardando 'REGISTRO'...")
     
     while True:
         try:
             if audio.ouvir_wake_word():
-                comando = audio.ouvir_comando()
+                print("--- WAKE WORD DETECTADA ---")
                 
-                if comando:
-                    app_visual.rosto.definir_emocao("confuso")
-                    resposta = brain.processar_entrada(comando)
+
+                modo_conversa_ativo = True
+                tentativas_silencio = 0 
+                
+                while modo_conversa_ativo:
+                    app_visual.rosto.definir_emocao("ouvindo")
                     
-                    texto_final = resposta["texto_resposta"]
-                    emocao_final = resposta["emocao"]
+                    comando = audio.ouvir_comando()
                     
-                    app_visual.rosto.definir_emocao(emocao_final)
-                    audio.falar(texto_final, emocao_final)
-                else:
-                    time.sleep(1)
-                
-                app_visual.rosto.definir_emocao("neutro")
-                
+                    if comando:
+                        tentativas_silencio = 0
+                        
+                        if "tchau" in comando.lower() or "obrigado" in comando.lower():
+                            audio.falar("Até mais.", "neutro")
+                            modo_conversa_ativo = False
+                            break
+
+                        app_visual.rosto.definir_emocao("confuso")
+                        
+                        resposta = brain.processar_entrada(comando)
+                        
+                        app_visual.rosto.definir_emocao(resposta["emocao"])
+                        
+
+                        audio.falar(resposta["texto_resposta"], resposta["emocao"])
+                        
+
+                        
+                    else:
+                        tentativas_silencio += 1
+                        
+                        if tentativas_silencio >= 1: 
+                            print("Silêncio detectado. Voltando a dormir.")
+                            app_visual.atualizar_texto("Dormindo...")
+                            app_visual.rosto.definir_emocao("neutro")
+                            modo_conversa_ativo = False 
+                        else:
+                            app_visual.atualizar_texto("Não ouvi...")
+            
+
             time.sleep(0.1)
-        
+
         except Exception as e:
-            print(f"Erro no ciclo principal: {e}")
-            app_visual.rosto.definir_emocao("irritado")
-            time.sleep(2)
-            app_visual.rosto.definir_emocao("neutro")
+            print(f"Erro: {e}")
+            modo_conversa_ativo = False 
             
 
 if __name__ == "__main__":

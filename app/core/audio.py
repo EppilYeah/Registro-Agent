@@ -3,7 +3,6 @@ import pvporcupine               # Wake word
 import pyaudio                   # Driver pra conectar o mic
 import struct                    # Conversor de audio pro porcupine
 import os                        # pra apagar o mp3 temporario
-from gtts import gTTS            # voz TTS
 from playsound import playsound  # tocador de audio
 import asyncio
 import edge_tts
@@ -12,30 +11,57 @@ import config                    # chaves API
 
 class AudioHandler:
     def __init__(self):
-        caminho_keyword = "app/core/REGISTRO_pt_windows_v3_0_0.ppn"
-        caminho_modelo = "app/core/porcupine_params_pt.pv"
+        pasta_atual = os.path.dirname(os.path.abspath(__file__))
         
-        self.pvporcupine = pvporcupine.create(keyword_paths=[caminho_keyword], access_key=config.PICOVOICE_KEY, model_path=caminho_modelo)
+  
+        caminho_keyword = os.path.join(pasta_atual, "REGISTRO_pt_windows_v3_0_0.ppn")
+        caminho_modelo = os.path.join(pasta_atual, "porcupine_params_pt.pv")
+
+  
+        if not os.path.exists(caminho_keyword):
+            print(f"ERRO: Arquivo .ppn não encontrado em: {caminho_keyword}")
+        if not os.path.exists(caminho_modelo):
+            print(f"ERRO: Arquivo .pv não encontrado em: {caminho_modelo}")
+
+
+        try:
+            self.pvporcupine = pvporcupine.create(
+                access_key=config.PICOVOICE_KEY,
+                keyword_paths=[caminho_keyword],
+                model_path=caminho_modelo,
+                sensitivities=[1.0] 
+            )
+        except Exception as e:
+            print(f"Erro ao criar Porcupine: {e}")
+
+            print("Tentando fallback para Jarvis (Inglês)...")
+            self.pvporcupine = pvporcupine.create(access_key=config.PICOVOICE_KEY, keywords=['jarvis'])
+
         self.pa = pyaudio.PyAudio()
         self.stream = self.pa.open(
             rate=self.pvporcupine.sample_rate,
-            frames_per_buffer=self.pvporcupine.frame_length,
             channels=1,
             format=pyaudio.paInt16,
-            input=True
+            input=True,
+            frames_per_buffer=self.pvporcupine.frame_length
         )
         
         self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 300  # Sensibilidade 
-        self.recognizer.pause_threshold = 1.5   # Espera antes de cortar
+        self.recognizer.energy_threshold = 300
+        self.recognizer.pause_threshold = 1.5
         self.recognizer.dynamic_energy_threshold = True
         
     def ouvir_wake_word(self):
+        print(" Ouvindo")
         while True:
-            listening = self.stream.read(self.pvporcupine.frame_length)
+            listening = self.stream.read(self.pvporcupine.frame_length, exception_on_overflow=False)
             listening = struct.unpack_from("h" * self.pvporcupine.frame_length, listening)
+            
             resultado = self.pvporcupine.process(listening)
+            
+            
             if resultado >= 0:
+                print("WAKE WORD DETECTADA")
                 return True
     
     def ouvir_comando(self):
@@ -44,7 +70,7 @@ class AudioHandler:
         with sr.Microphone() as source:
             # self.recognizer.adjust_for_ambient_noise(source, duration = 0.5)
             try:
-                audio = self.recognizer.listen(source, timeout=5)
+                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=5)
                 comando = self.recognizer.recognize_google(audio, language="pt-BR")
                 print(f"COMANDO: {comando}")
                 return comando
@@ -73,7 +99,7 @@ class AudioHandler:
         VOZ = "pt-BR-FranciscaNeural" 
         
         rate = "-10%"
-        pitch = "-10Hz"
+        pitch = "-5Hz"
 
         if emocao == "sarcasmo_tedio":
             rate = "-15%" 
