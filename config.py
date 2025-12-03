@@ -1,5 +1,5 @@
 API_KEY = "***REMOVED***"
-PICOVOICE_KEY = "pjQ/YAwPpwGCdSan5NSSO4zOgrawDhQM0kZYmvFtivrqJkH7YYtIpA=="
+PICOVOICE_KEY = "Ts3FNvQDr/ThIXM2rbXl2p+1wCSz+7KR9ZCe8hT2CltX0UXT7DeHZw=="
 LISTA_MODELOS = [
     "gemini-3.0-pro-preview",
     "gemini-2.5-flash",
