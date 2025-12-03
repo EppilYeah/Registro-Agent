@@ -10,6 +10,7 @@ brain = Brain()
 audio = AudioHandler()
 
 def ciclo_principal():
+    audio.falar("REGISTRO INICIADO", "neutro")
     app_visual.rosto.definir_emocao("neutro")
     app_visual.atualizar_texto("Aguardando 'REGISTRO'...")
     
