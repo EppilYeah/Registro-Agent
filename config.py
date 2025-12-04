@@ -10,16 +10,11 @@ LISTA_FERRAMENTAS = [
     # ABRIR PROGRAMA
     {
         "name": "abrir_whatsapp",
-        "description": "Abre um software, aplicativo ou site instalado no computador do usuário.",
+        "description": "Abre o whatsapp web no navegador padrão.",
         "parameters": {
             "type": "object",
-            "properties": {
-                "nome_programa": {
-                    "type": "string",
-                    "description": "O nome do programa. Opções suportadas: 'calculadora', 'bloco de notas', 'navegador', 'spotify', 'whatsapp', 'paint', 'cmd'."
-                }
-            },
-            "required": ["nome_programa"]
+            "properties": {},
+            "required": []
         }
     },
 
@@ -32,7 +27,7 @@ LISTA_FERRAMENTAS = [
             "properties": {
                 "acao": {
                     "type": "string",
-                    "description": "A ação a ser executada. Deve ser um destes valores: 'aumentar', 'diminuir', 'mudo'."
+                    "description": "A ação a ser executada. use APENAS UM DESSES VALORES: 'aumentar', 'diminuir', 'mudo'."
                 }
             },
             "required": ["acao"]
@@ -58,7 +53,7 @@ LISTA_FERRAMENTAS = [
     # LEMBRETE / TIMER
     {
         "name": "agendar_lembrete",
-        "description": "Define um lembrete ou alarme para o futuro. O usuário dirá o tempo (ex: 'em 10 minutos'), e você deve converter para SEGUNDOS.",
+        "description": "Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -75,16 +70,6 @@ LISTA_FERRAMENTAS = [
         }
     },
 
-    # TEMPO
-    {
-        "name": "obter_hora_atual",
-        "description": "Retorna a data e hora atuais do sistema. Use isso sempre que o usuário perguntar 'que horas são' ou 'que dia é hoje'.",
-        "parameters": {
-            "type": "object",
-            "properties": {}, # Não precisa de argumentos
-            "required": []
-        }
-    }
 ]
 
 PROMPT_PERSONALIDADE = """
