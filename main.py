@@ -1,6 +1,6 @@
 import threading
 import time
-from app.brain import Brain
+from app.core.brain import Brain
 from app.gui.interface import Interface
 from app.core.audio import AudioHandler
 
