@@ -3,11 +3,17 @@ import time
 from app.core.brain import Brain
 from app.gui.interface import Interface
 from app.core.audio import AudioHandler
+from app.services.system import Systemhandler
 
 
 app_visual = Interface()
 brain = Brain()
 audio = AudioHandler()
+
+sistema = Systemhandler(
+    funcao_falar=audio.falar,
+    funcao_gerar_texto=brain.gerar_texto_aleatorio
+)
 
 def ciclo_principal():
     audio.falar("REGISTRO INICIADO", "neutro")
