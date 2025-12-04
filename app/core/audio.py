@@ -5,6 +5,8 @@ import speech_recognition as sr
 from vosk import Model, KaldiRecognizer
 from playsound import playsound
 import asyncio
+from pydub import AudioSegment
+from pydub.effects import compress_dynamic_range
 import edge_tts
 
 class AudioHandler:
@@ -12,6 +14,15 @@ class AudioHandler:
         # Configuração do VOSK
         pasta_atual = os.path.dirname(os.path.abspath(__file__))
         caminho_modelo = os.path.join(pasta_atual, "modelo_vosk")
+        
+        # Configuração Pydub
+        caminho_ffmpeg = os.path.join(pasta_atual, "ffmpeg.exe")
+        caminho_ffprobe = os.path.join(pasta_atual, "ffprobe.exe")
+        
+        AudioSegment.converter = caminho_ffmpeg
+        AudioSegment.ffprobe = caminho_ffprobe
+        
+        os.environ["PATH"] += os.pathsep + pasta_atual
 
         # Verifica se baixou o modelo
         if not os.path.exists(caminho_modelo):
@@ -104,22 +115,22 @@ class AudioHandler:
 
     def falar(self, texto, emocao="neutro"):
         """método de fala com Edge-TTS """
-        print(f"🔊 Falando: {texto}")
+        print(f"FALANDO: {texto}")
         nome_arquivo = "resposta_temp.mp3"
         
         VOZ = "pt-BR-FranciscaNeural"
-        rate = "-5%"
-        pitch = "-10Hz"
+        rate = "-10%"
+        pitch = "-5Hz"
         
 
         if emocao == "sarcasmo_tedio":
-            rate = "-15%"; pitch = "-5Hz"
+            rate = "-10%"; pitch = "-5Hz"
         elif emocao == "irritado":
-            rate = "+10%"; pitch = "+5Hz"
+            rate = "-10%"; pitch = "-5Hz"
         elif emocao == "feliz" or emocao == "arrogante":
-            rate = "+5%"; pitch = "+2Hz"
+            rate = "-10%"; pitch = "-5Hz"
         elif emocao == "confuso":
-            rate = "-5%"; pitch = "+0Hz"
+            rate = "-10%"; pitch = "-5Hz"
 
         try:
             if os.path.exists(nome_arquivo):
@@ -130,8 +141,40 @@ class AudioHandler:
                 await comunicar.save(nome_arquivo)
 
             asyncio.run(gerar())
+            self._aplicar_efeito_glados(nome_arquivo)
             playsound(nome_arquivo)
             os.remove(nome_arquivo)
             
         except Exception as e:
             print(f"Erro no áudio: {e}")
+            
+    def _aplicar_efeito_glados(self, nome_arquivo):
+        print(">> APLICANDO MODULOS")
+        
+
+        som = AudioSegment.from_mp3(nome_arquivo)
+        
+        new_sample_rate = int(som.frame_rate * 0.85)
+        som_agudo = som._spawn(som.raw_data, overrides={'frame_rate': new_sample_rate})
+
+        som_final = som_agudo.set_frame_rate(som.frame_rate)
+
+        som_final = som_final.high_pass_filter(500).low_pass_filter(3500)
+        som_final = compress_dynamic_range(som_final, threshold=-20.0, ratio=4.0)
+        
+        som_low_fi = som.set_frame_rate(10000)
+        som_final = som_low_fi.set_frame_rate(24000)
+        
+        som_final = som_final + 10
+
+        fatias = []
+        tamanho_fatia = 50 
+        for i in range(0, len(som_final), tamanho_fatia):
+            fatia = som_final[i : i + tamanho_fatia]
+
+            fatias.append(fatia)
+        
+        som_final = sum(fatias)
+
+
+        som_final.export(nome_arquivo, format="mp3")
