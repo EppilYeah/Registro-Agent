@@ -142,24 +142,24 @@ class AudioHandler:
         texto_com_pausas = texto.replace(", ", f', <break time="400ms"/> ')
         texto_com_pausas = texto_com_pausas.replace(". ", f'. <break time="800ms"/> ')
         
-        ssml_texto = f"""
-        <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='pt-BR'>
-            <voice name='{VOZ}'>
-                <mstts:express-as style="{style}">
-                    <prosody rate='{rate_str}' pitch='{pitch_str}'>
-                        {texto_com_pausas}
-                    </prosody>
-                </mstts:express-as>
-            </voice>
-        </speak>
-        """
+        ssml_texto = (
+            f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='pt-BR'>"
+            f"<voice name='{VOZ}'>"
+            f"<mstts:express-as style='{style}'>"
+            f"<prosody rate='{rate_str}' pitch='{pitch_str}'>"
+            f"{texto_com_pausas}"
+            f"</prosody>"
+            f"</mstts:express-as>"
+            f"</voice>"
+            f"</speak>"
+        )
 
         try:
             if os.path.exists(nome_arquivo):
                 os.remove(nome_arquivo)
 
             async def gerar():
-                comunicar = edge_tts.Communicate(ssml_texto, VOZ, rate=rate_str, pitch=pitch_str)
+                comunicar = edge_tts.Communicate(ssml_texto, VOZ)
                 await comunicar.save(nome_arquivo)
 
             asyncio.run(gerar())
