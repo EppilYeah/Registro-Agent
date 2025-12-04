@@ -9,7 +9,7 @@ LISTA_MODELOS = [
 LISTA_FERRAMENTAS = [
     # ABRIR PROGRAMA
     {
-        "name": "abrir_whatsapp",
+        "name": "abrir_whatsapp_web",
         "description": "Abre o whatsapp web no navegador padrão.",
         "parameters": {
             "type": "object",

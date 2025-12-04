@@ -13,9 +13,9 @@ class Systemhandler:
         self.funcao_gerar_texto = funcao_gerar_texto
         
         self.skills = {
-            "volume" : self.volume_pc,
-            "pausa" : self.pausar_midia,
-            "abrir whatsapp" : self.abrir_whatsapp_web,
+            "volume_pc" : self.volume_pc,
+            "pausar_midia_" : self.pausar_midia,
+            "abrir_whatsapp_web" : self.abrir_whatsapp_web,
             "agendar_lembrete" : self.agendar_lembrete
         }
     

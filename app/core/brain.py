@@ -31,6 +31,7 @@ class Brain:
         
         try:
             response = self.chat.send_message(prompt_usuario) 
+            
             texto_limpo = response.text.replace("```json", "").replace("```", "").strip()
             dados_ia = json.loads(texto_limpo)
             
@@ -54,7 +55,9 @@ class Brain:
                 print(f"INICIANDO REGISTRO - {nome_modelo}")
                 modelo_teste = genai.GenerativeModel(
                     nome_modelo,
-                    generation_config=config_json)
+                    generation_config=config_json,
+                    #tools=config.LISTA_FERRAMENTAS
+                )
                 
                 historico_completo = self.carregar_memoria()
                 chat_pronto = modelo_teste.start_chat(history=historico_completo)
