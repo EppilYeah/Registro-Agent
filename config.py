@@ -6,6 +6,87 @@ LISTA_MODELOS = [
     "gemini-2.5-pro",
 ]
 
+LISTA_FERRAMENTAS = [
+    # ABRIR PROGRAMA
+    {
+        "name": "abrir_whatsapp",
+        "description": "Abre um software, aplicativo ou site instalado no computador do usuário.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nome_programa": {
+                    "type": "string",
+                    "description": "O nome do programa. Opções suportadas: 'calculadora', 'bloco de notas', 'navegador', 'spotify', 'whatsapp', 'paint', 'cmd'."
+                }
+            },
+            "required": ["nome_programa"]
+        }
+    },
+
+    # CONTROLE VOLUME
+    {
+        "name": "volume_pc",
+        "description": "Controla o volume do sistema (aumentar, diminuir ou mudo).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "acao": {
+                    "type": "string",
+                    "description": "A ação a ser executada. Deve ser um destes valores: 'aumentar', 'diminuir', 'mudo'."
+                }
+            },
+            "required": ["acao"]
+        }
+    },
+
+    # CONTROLE MIDIA
+    {
+        "name": "pausar_midia",
+        "description": "Controla a reprodução de música ou vídeo (play, pause, próximo).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "comando": {
+                    "type": "string",
+                    "description": "O comando de mídia. Valores aceitos: 'play_pause', 'proxima', 'anterior'."
+                }
+            },
+            "required": ["comando"]
+        }
+    },
+
+    # LEMBRETE / TIMER
+    {
+        "name": "agendar_lembrete",
+        "description": "Define um lembrete ou alarme para o futuro. O usuário dirá o tempo (ex: 'em 10 minutos'), e você deve converter para SEGUNDOS.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tempo_segundos": {
+                    "type": "integer",
+                    "description": "O tempo total de espera em SEGUNDOS. Ex: 1 minuto = 60, 1 hora = 3600."
+                },
+                "mensagem": {
+                    "type": "string",
+                    "description": "O texto do lembrete que será avisado ao usuário quando o tempo acabar."
+                }
+            },
+            "required": ["tempo_segundos", "mensagem"]
+        }
+    },
+
+    # TEMPO
+    {
+        "name": "obter_hora_atual",
+        "description": "Retorna a data e hora atuais do sistema. Use isso sempre que o usuário perguntar 'que horas são' ou 'que dia é hoje'.",
+        "parameters": {
+            "type": "object",
+            "properties": {}, # Não precisa de argumentos
+            "required": []
+        }
+    }
+]
+
 PROMPT_PERSONALIDADE = """
 IDENTIDADE:
 Você é o REGISTRO (Sistema de Inteligência e Registro Ativo).
