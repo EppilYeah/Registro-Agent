@@ -1,5 +1,4 @@
 API_KEY = "***REMOVED***"
-PICOVOICE_KEY = "Ts3FNvQDr/ThIXM2rbXl2p+1wCSz+7KR9ZCe8hT2CltX0UXT7DeHZw=="
 LISTA_MODELOS = [
     "gemini-3.0-pro-preview",
     "gemini-2.5-flash",
@@ -7,26 +6,26 @@ LISTA_MODELOS = [
 ]
 
 LISTA_FERRAMENTAS = [
-    # ABRIR PROGRAMA
+    # 1. ABRIR PROGRAMA
     {
         "name": "abrir_whatsapp_web",
         "description": "Abre o whatsapp web no navegador padrão.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT",  # <--- MAIÚSCULO
             "properties": {},
             "required": []
         }
     },
 
-    # CONTROLE VOLUME
+    # 2. CONTROLE VOLUME
     {
         "name": "volume_pc",
         "description": "Controla o volume do sistema (aumentar, diminuir ou mudo).",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT", # <--- MAIÚSCULO
             "properties": {
                 "acao": {
-                    "type": "string",
+                    "type": "STRING", # <--- MAIÚSCULO
                     "description": "A ação a ser executada. use APENAS UM DESSES VALORES: 'aumentar', 'diminuir', 'mudo'."
                 }
             },
@@ -34,15 +33,15 @@ LISTA_FERRAMENTAS = [
         }
     },
 
-    # CONTROLE MIDIA
+    # 3. CONTROLE MIDIA
     {
         "name": "pausar_midia",
         "description": "Controla a reprodução de música ou vídeo (play, pause, próximo).",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT", # <--- MAIÚSCULO
             "properties": {
                 "comando": {
-                    "type": "string",
+                    "type": "STRING", # <--- MAIÚSCULO
                     "description": "O comando de mídia. Valores aceitos: 'play_pause', 'proxima', 'anterior'."
                 }
             },
@@ -50,26 +49,25 @@ LISTA_FERRAMENTAS = [
         }
     },
 
-    # LEMBRETE / TIMER
+    # 4. LEMBRETE / TIMER
     {
         "name": "agendar_lembrete",
         "description": "Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS.",
         "parameters": {
-            "type": "object",
+            "type": "OBJECT", # <--- MAIÚSCULO
             "properties": {
                 "tempo_segundos": {
-                    "type": "integer",
+                    "type": "INTEGER", # <--- MAIÚSCULO
                     "description": "O tempo total de espera em SEGUNDOS. Ex: 1 minuto = 60, 1 hora = 3600."
                 },
                 "mensagem": {
-                    "type": "string",
+                    "type": "STRING", # <--- MAIÚSCULO
                     "description": "O texto do lembrete que será avisado ao usuário quando o tempo acabar."
                 }
             },
             "required": ["tempo_segundos", "mensagem"]
         }
     },
-
 ]
 
 PROMPT_PERSONALIDADE = """

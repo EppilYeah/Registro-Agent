@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 import google.generativeai as genai
 import config
+import traceback
 
 class Brain:
     '''Responsavel por toda parte logica de processamento e pensamento'''
@@ -45,18 +46,19 @@ class Brain:
     def carregar_modelo_seguro(self):
         '''Inicializa a IA com as configurações e testa os modelos disponiveis'''
         config_json = {
-            "response_mime_type": "application/json", #converte automaticamente tudo pra json
+            #"response_mime_type": "application/json", #converte automaticamente tudo pra json
             "temperature": 1.0,
             "top_p": 0.95,        #variedade vocabulario
             "top_k": 40           #criatividade escolhas
         }
+        tools = config.LISTA_FERRAMENTAS
         for nome_modelo in config.LISTA_MODELOS:
             try:
                 print(f"INICIANDO REGISTRO - {nome_modelo}")
                 modelo_teste = genai.GenerativeModel(
                     nome_modelo,
                     generation_config=config_json,
-                    #tools=config.LISTA_FERRAMENTAS
+                    tools=tools
                 )
                 
                 historico_completo = self.carregar_memoria()
@@ -69,6 +71,7 @@ class Brain:
                 return chat_pronto, modelo_teste
             except Exception as e:
                 print(f"ERRO AO INICIAR - {e}")
+                traceback.print_exc()
                 continue
         raise Exception("IMPOSSIVEL INICIAR REGISTRO - ABORTANDO OPERAÇÃO")
 
