@@ -121,45 +121,26 @@ class AudioHandler:
         VOZ = "pt-BR-FranciscaNeural"
         rate_str = "-5%"
         pitch_str = "-5Hz"
-        style = "default" 
         
         if emocao == "sarcasmo_tedio":
             rate_str = "-15%"
             pitch_str = "-10Hz"
-            style = "unfriendly" # Tenta soar menos amigável
         elif emocao == "irritado":
             rate_str = "+10%"
             pitch_str = "+5Hz"
-            style = "angry"
         elif emocao == "feliz" or emocao == "arrogante":
             rate_str = "+5%"
             pitch_str = "+2Hz"
-            style = "cheerful"
         elif emocao == "confuso":
-            rate_str = "-10%"
-            pitch_str = "+0Hz"
+            rate_str = "-10%"; pitch_str = "-5Hz"
             
-        texto_com_pausas = texto.replace(", ", f', <break time="400ms"/> ')
-        texto_com_pausas = texto_com_pausas.replace(". ", f'. <break time="800ms"/> ')
-        
-        ssml_texto = (
-            f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='pt-BR'>"
-            f"<voice name='{VOZ}'>"
-            f"<mstts:express-as style='{style}'>"
-            f"<prosody rate='{rate_str}' pitch='{pitch_str}'>"
-            f"{texto_com_pausas}"
-            f"</prosody>"
-            f"</mstts:express-as>"
-            f"</voice>"
-            f"</speak>"
-        )
 
         try:
             if os.path.exists(nome_arquivo):
                 os.remove(nome_arquivo)
 
             async def gerar():
-                comunicar = edge_tts.Communicate(ssml_texto, VOZ)
+                comunicar = edge_tts.Communicate(texto, VOZ, pitch=pitch_str, rate=rate_str)
                 await comunicar.save(nome_arquivo)
 
             asyncio.run(gerar())
