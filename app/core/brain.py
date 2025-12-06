@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 import google.generativeai as genai
+from app.services.system import Systemhandler
+from google.ai.generativelanguage_v1beta.types import content
 import config
 import traceback
 
@@ -10,6 +12,7 @@ class Brain:
         genai.configure(api_key=config.API_KEY)
         self.caminho_memoria = "data/brain.jsonl"
         
+        self.sistema = None
 
         self.chat, self.modelo = self.carregar_modelo_seguro()
 
@@ -26,6 +29,12 @@ class Brain:
         except FileNotFoundError:
             pass
 
+
+
+
+
+
+
     def processar_entrada(self, prompt_usuario):
         '''Processa o prompt do usuario e traduz pra IA'''
         self._registrar_memoria(prompt_usuario, "Luis")
@@ -33,6 +42,12 @@ class Brain:
         try:
             response = self.chat.send_message(prompt_usuario) 
             
+            while response.parts[0].function_call:
+                parts_name = response.parts[0].function_call.name
+                parts_args = response.parts[0].function_call.arguments
+                
+                
+                
             texto_limpo = response.text.replace("```json", "").replace("```", "").strip()
             dados_ia = json.loads(texto_limpo)
             
@@ -42,6 +57,19 @@ class Brain:
         except Exception as e:
             print(f"Erro ao processar entrada: {e}")
             return {"texto_resposta": "Tive um erro interno ao processar sua mensagem.", "emocao": "confuso"}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def carregar_modelo_seguro(self):
         '''Inicializa a IA com as configurações e testa os modelos disponiveis'''
