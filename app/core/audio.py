@@ -21,7 +21,7 @@ class AudioHandler:
         
         AudioSegment.converter = caminho_ffmpeg
         AudioSegment.ffprobe = caminho_ffprobe
-        
+
         os.environ["PATH"] += os.pathsep + pasta_atual
 
         # Verifica se baixou o modelo
@@ -53,7 +53,7 @@ class AudioHandler:
         # google
         self.recognizer = sr.Recognizer()
         self.recognizer.energy_threshold = 300
-        self.recognizer.pause_threshold = 1.0
+        self.recognizer.pause_threshold = 2.0
         self.recognizer.dynamic_energy_threshold = True
 
     def ouvir_wake_word(self):
@@ -68,7 +68,7 @@ class AudioHandler:
             # Lê um pedaço do áudio
             data = self.stream.read(4000, exception_on_overflow=False)
             
-            # Modo 1: Frase completa (Mais preciso)
+            # Frase completa (Mais preciso)
             if self.rec.AcceptWaveform(data):
                 resultado = json.loads(self.rec.Result())
                 texto = resultado["text"]
@@ -76,7 +76,7 @@ class AudioHandler:
                     print("WAKE WORD DETECTADA (Final)!")
                     return True
             
-            # Modo 2: Enquanto falo (Mais rápido)
+            # Enquanto falo (Mais rápido)
             else:
                 parcial = json.loads(self.rec.PartialResult())
                 texto_parcial = parcial["partial"]
