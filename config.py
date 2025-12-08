@@ -1,4 +1,6 @@
-API_KEY = [
+API_KEY = "***REMOVED***"
+
+API_KEYS = [
     ***REMOVED***
     ***REMOVED***
     "***REMOVED***"
@@ -10,6 +12,7 @@ LISTA_MODELOS = [
     "gemini-2.0-flash",
     "gemini-flash-latest"
 ]
+MODO_DEBUG = False
 
 LISTA_FERRAMENTAS = [
     #ABRIR PROGRAMA
