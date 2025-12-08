@@ -5,15 +5,16 @@ from app.gui.interface import Interface
 from app.core.audio import AudioHandler
 from app.services.system import Systemhandler
 
-
-app_visual = Interface()
-brain = Brain()
 audio = AudioHandler()
-
+brain = Brain()
 sistema = Systemhandler(
     funcao_falar=audio.falar,
     funcao_gerar_texto=brain.gerar_texto_aleatorio
 )
+app_visual = Interface()
+
+
+brain.sistema = sistema
 
 def ciclo_principal():
     audio.falar("REGISTRO INICIADO", "neutro")
