@@ -1,67 +1,69 @@
 API_KEY = "***REMOVED***"
 LISTA_MODELOS = [
-    "gemini-3.0-pro-preview",
+    "gemini-3-pro-preview",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest"
 ]
 
 LISTA_FERRAMENTAS = [
-    # 1. ABRIR PROGRAMA
+    #ABRIR PROGRAMA
     {
         "name": "abrir_whatsapp_web",
         "description": "Abre o whatsapp web no navegador padrão.",
         "parameters": {
-            "type": "OBJECT",  # <--- MAIÚSCULO
+            "type": "OBJECT", 
             "properties": {},
             "required": []
         }
     },
 
-    # 2. CONTROLE VOLUME
+    # CONTROLE VOLUME
     {
         "name": "volume_pc",
-        "description": "Controla o volume do sistema (aumentar, diminuir ou mudo).",
+        "description": "Controla o volume do sistema (aumentar, diminuir ou define).",
         "parameters": {
-            "type": "OBJECT", # <--- MAIÚSCULO
+            "type": "OBJECT", 
             "properties": {
-                "acao": {
-                    "type": "STRING", # <--- MAIÚSCULO
-                    "description": "A ação a ser executada. use APENAS UM DESSES VALORES: 'aumentar', 'diminuir', 'mudo'."
+                "modo": {
+                    "type": "STRING", 
+                    "description": "Para definir um valor exato, use modo='definir'. Para ajustes relativos, use 'aumentar' ou 'diminuir'."
+                },
+                "valor": {
+                    "type": "INTEGER", 
+                    "description": "O valor em porcentagem (0 a 100) para ajustar o volume."
                 }
             },
-            "required": ["acao"]
+            "required": ["modo", "valor"]
         }
     },
 
-    # 3. CONTROLE MIDIA
+    #CONTROLE MIDIA
     {
         "name": "pausar_midia",
         "description": "Controla a reprodução de música ou vídeo (play, pause, próximo).",
         "parameters": {
-            "type": "OBJECT", # <--- MAIÚSCULO
-            "properties": {
-                "comando": {
-                    "type": "STRING", # <--- MAIÚSCULO
-                    "description": "O comando de mídia. Valores aceitos: 'play_pause', 'proxima', 'anterior'."
-                }
-            },
-            "required": ["comando"]
+            "type": "OBJECT",
+            "properties": {},
+            "required": []
         }
     },
 
-    # 4. LEMBRETE / TIMER
+    # LEMBRETE / TIMER
     {
         "name": "agendar_lembrete",
         "description": "Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS.",
         "parameters": {
-            "type": "OBJECT", # <--- MAIÚSCULO
+            "type": "OBJECT", 
             "properties": {
                 "tempo_segundos": {
-                    "type": "INTEGER", # <--- MAIÚSCULO
+                    "type": "INTEGER", 
                     "description": "O tempo total de espera em SEGUNDOS. Ex: 1 minuto = 60, 1 hora = 3600."
                 },
                 "mensagem": {
-                    "type": "STRING", # <--- MAIÚSCULO
+                    "type": "STRING", 
                     "description": "O texto do lembrete que será avisado ao usuário quando o tempo acabar."
                 }
             },

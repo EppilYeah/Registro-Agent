@@ -3,6 +3,12 @@ import threading
 import subprocess
 import datetime
 import pyautogui
+import math
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
+from comtypes import CoInitialize
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+
 
 class Systemhandler:
     def __init__(self, funcao_falar=None, funcao_gerar_texto=None):
@@ -12,19 +18,59 @@ class Systemhandler:
         self.funcao_falar = funcao_falar
         self.funcao_gerar_texto = funcao_gerar_texto
         
+        try:
+            from comtypes import CoInitialize
+            CoInitialize()
+            
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate( # pylint: disable=E1101
+                IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            
+            self.volume_control = cast(interface, POINTER(IAudioEndpointVolume))
+            print(">> Driver de Áudio Carregado.")
+            
+        except Exception as e:
+            print(f"Erro crítico no driver de áudio: {e}")
+            # Tenta o método legado se o novo falhar
+            self.volume_control = None
+        
         self.skills = {
             "volume_pc" : self.volume_pc,
-            "pausar_midia_" : self.pausar_midia,
+            "pausar_midia" : self.pausar_midia,
             "abrir_whatsapp_web" : self.abrir_whatsapp_web,
             "agendar_lembrete" : self.agendar_lembrete
         }
     
-    def volume_pc(self, acao):
+    def volume_pc(self, modo, valor=0):
+        if not self.volume_control:
+            return "Erro: Driver de áudio não detectado."
+
         try:
-            pyautogui.press("volumemute" if acao == "mudo" else "volumeup" if acao == "aumentar" else "volumedown")
-            return "Volume ajustado."
+            valor_os = float(valor) / 100.0
+            volume_atual = self.volume_control.GetMasterVolumeLevelScalar()
+            
+            novo_volume = volume_atual 
+
+            if modo == "definir":
+                novo_volume = valor_os
+            elif modo == "aumentar":
+                novo_volume = volume_atual + valor_os
+            elif modo == "diminuir":
+                novo_volume = volume_atual - valor_os
+            elif modo == "mudo":
+                mute_atual = self.volume_control.GetMute()
+                self.volume_control.SetMute(not mute_atual, None)
+                return "Mudo alternado."
+
+            novo_volume = max(0.0, min(1.0, novo_volume))
+            
+            self.volume_control.SetMasterVolumeLevelScalar(novo_volume, None)
+            
+            # Retorna porcentagem bonita para a IA ler
+            return f"Volume ajustado para {int(novo_volume * 100)}%."
+            
         except Exception as e:
-            return f"ERRO: {e}"
+            return f"ERRO ao ajustar volume: {e}"
         
     def pausar_midia(self):
         try:
