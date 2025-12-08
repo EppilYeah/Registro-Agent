@@ -10,7 +10,8 @@ class Brain:
     '''Responsável por toda parte lógica de processamento e pensamento'''
     
     def __init__(self):
-        genai.configure(api_key=config.API_KEY)
+        config.API_KEY_ATUAL = (config.API_KEY_ATUAL + 1) % len(config.API_KEY)
+        genai.configure(api_key=config.API_KEY[config.API_KEY_ATUAL])
         self.caminho_memoria = "data/brain.jsonl"
         self.modelo_atual_nome = "" 
         
@@ -157,6 +158,10 @@ class Brain:
 
             except Exception as e:
                 print(f"⚠️ Falha no {nome_modelo}: {e}")
+                
+                if "429" in str(e) or "quota" in str(e).lower():
+                    ignorar_modelos.append(nome_modelo)  # Marca pra não tentar de novo
+                    print(f"Modelo {nome_modelo} sem cota. Pulando...")
                 time.sleep(3)
                 continue
         

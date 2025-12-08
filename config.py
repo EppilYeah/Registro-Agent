@@ -1,10 +1,13 @@
-API_KEY = "***REMOVED***"
+API_KEY = [
+    ***REMOVED***
+    ***REMOVED***
+    "***REMOVED***"
+]
+API_KEY_ATUAL = 0
 LISTA_MODELOS = [
-    "gemini-3-pro-preview",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-2.0-flash",
-    "gemini-2.5-flash-lite",
     "gemini-flash-latest"
 ]
 
