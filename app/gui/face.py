@@ -256,4 +256,4 @@ class Rosto(ctk.CTkCanvas):
         jx = random.uniform(-0.5, 0.5)
         jy = random.uniform(-0.5, 0.5)
         self.desenhar(jx, jy)
-        self.after(20, self.animar)
+        self.after(33, self.animar)
