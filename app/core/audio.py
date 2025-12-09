@@ -119,18 +119,18 @@ class AudioHandler:
         nome_arquivo = "resposta_temp.mp3"
         
         VOZ = "pt-BR-FranciscaNeural"
-        rate_str = "-5%"
-        pitch_str = "-5Hz"
+        rate_str = "+20%"
+        pitch_str = "+10Hz"
         
         if emocao == "sarcasmo_tedio":
-            rate_str = "-15%"
-            pitch_str = "-10Hz"
+            rate_str = "+20%"
+            pitch_str = "+10Hz"
         elif emocao == "irritado":
             rate_str = "+10%"
             pitch_str = "+5Hz"
         elif emocao == "feliz" or emocao == "arrogante":
-            rate_str = "+5%"
-            pitch_str = "+2Hz"
+            rate_str = "+20%"
+            pitch_str = "+10Hz"
         elif emocao == "confuso":
             rate_str = "-10%"; pitch_str = "-5Hz"
             

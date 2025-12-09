@@ -5,9 +5,7 @@ import datetime
 import pyautogui
 import math
 from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
-from comtypes import CoInitialize
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
 
 
 class Systemhandler:
@@ -17,22 +15,9 @@ class Systemhandler:
         
         self.funcao_falar = funcao_falar
         self.funcao_gerar_texto = funcao_gerar_texto
+        self.volume_control = None
         
-        try:
-            from comtypes import CoInitialize
-            CoInitialize()
-            
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate( # pylint: disable=E1101
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            
-            self.volume_control = cast(interface, POINTER(IAudioEndpointVolume))
-            print(">> Driver de Áudio Carregado.")
-            
-        except Exception as e:
-            print(f"Erro crítico no driver de áudio: {e}")
-            # Tenta o método legado se o novo falhar
-            self.volume_control = None
+        self._inicializar_audio()
         
         self.skills = {
             "volume_pc" : self.volume_pc,
@@ -41,12 +26,36 @@ class Systemhandler:
             "agendar_lembrete" : self.agendar_lembrete
         }
     
+    def _inicializar_audio(self):
+        try:
+            CoInitialize()
+            
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            self.volume_control = cast(interface, POINTER(IAudioEndpointVolume))
+            
+            volume_atual = self.volume_control.GetMasterVolumeLevelScalar()
+            print(f"[AUDIO] Driver carregado. Volume atual: {int(volume_atual * 100)}%")
+            
+        except AttributeError as e:
+            print(f"[AUDIO] Erro de interface COM: {e}")
+            print("[AUDIO] Tente: pip uninstall pycaw && pip install pycaw")
+            self.volume_control = None
+        except Exception as e:
+            print(f"[AUDIO] Falha ao inicializar driver: {e}")
+            import traceback
+            traceback.print_exc()
+            self.volume_control = None
+    
     def volume_pc(self, modo, valor=0):
         if not self.volume_control:
-            return "Erro: Driver de áudio não detectado."
+            return "Erro: Driver de áudio não disponível. Execute como administrador."
 
         try:
-            valor_os = float(valor) / 100.0
+            valor_float = float(valor)
+            valor_os = valor_float / 100.0
             volume_atual = self.volume_control.GetMasterVolumeLevelScalar()
             
             novo_volume = volume_atual 
@@ -60,50 +69,55 @@ class Systemhandler:
             elif modo == "mudo":
                 mute_atual = self.volume_control.GetMute()
                 self.volume_control.SetMute(not mute_atual, None)
-                return "Mudo alternado."
+                status = "ativado" if not mute_atual else "desativado"
+                return f"Mudo {status}."
 
             novo_volume = max(0.0, min(1.0, novo_volume))
             
             self.volume_control.SetMasterVolumeLevelScalar(novo_volume, None)
             
-            # Retorna porcentagem bonita para a IA ler
             return f"Volume ajustado para {int(novo_volume * 100)}%."
             
         except Exception as e:
-            return f"ERRO ao ajustar volume: {e}"
+            return f"Erro ao ajustar volume: {e}"
         
     def pausar_midia(self):
         try:
             pyautogui.press("playpause")
             return "Mídia pausada/retomada."
         except Exception as e:
-            return f"ERRO: {e}"
+            return f"Erro: {e}"
     
     def abrir_whatsapp_web(self):
         try:
-            if os.name == "nt": #windows
+            if os.name == "nt":
                 os.startfile("https://web.whatsapp.com/")
+                return "WhatsApp Web aberto."
+            return "Sistema operacional não suportado."
         except Exception as e:
-            return f"ERRO: {e}"
+            return f"Erro: {e}"
     
     def agendar_lembrete(self, tempo_segundos, mensagem):
         try:
             tempo = int(tempo_segundos)
             t = threading.Timer(tempo, self._disparar_alerta, args=[mensagem])
             t.start()
-            return f"Feito. Daqui a {tempo} segundos eu te cobro."
+            return f"Lembrete agendado para daqui a {tempo} segundos."
         except ValueError:
             return "Erro: O tempo precisa ser um número em segundos."
+        except Exception as e:
+            return f"Erro: {e}"
         
     def _disparar_alerta(self, mensagem_bruta):
-        print(f"\nALARME: {mensagem_bruta}")
+        print(f"\n[ALERTA] {mensagem_bruta}")
         
         texto_final = f"Lembrete: {mensagem_bruta}"
         
         if self.funcao_gerar_texto:
-            texto_final = self.funcao_gerar_texto(mensagem_bruta)
+            try:
+                texto_final = self.funcao_gerar_texto(mensagem_bruta)
+            except:
+                pass
             
         if self.funcao_falar:
-
             self.funcao_falar(texto_final, "arrogante")
-
