@@ -1,81 +1,94 @@
-API_KEY = "***REMOVED***"
+import google.generativeai as genai
+
+API_KEY = ***REMOVED***
 
 API_KEYS = [
     ***REMOVED***
     ***REMOVED***
-    "***REMOVED***"
+    ***REMOVED***
+    ***REMOVED***,
 ]
 API_KEY_ATUAL = 0
 LISTA_MODELOS = [
     "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.0-flash",
+    #"gemini-2.5-pro",
+    #"gemini-2.0-flash",
     "gemini-flash-latest"
 ]
 MODO_DEBUG = False
 
 LISTA_FERRAMENTAS = [
-    #ABRIR PROGRAMA
-    {
-        "name": "abrir_whatsapp_web",
-        "description": "Abre o whatsapp web no navegador padrão.",
-        "parameters": {
-            "type": "OBJECT", 
-            "properties": {},
-            "required": []
-        }
-    },
-
-    # CONTROLE VOLUME
-    {
-        "name": "volume_pc",
-        "description": "Controla o volume do sistema (aumentar, diminuir ou define).",
-        "parameters": {
-            "type": "OBJECT", 
-            "properties": {
-                "modo": {
-                    "type": "STRING", 
-                    "description": "Para definir um valor exato, use modo='definir'. Para ajustes relativos, use 'aumentar' ou 'diminuir'."
-                },
-                "valor": {
-                    "type": "INTEGER", 
-                    "description": "O valor em porcentagem (0 a 100) para ajustar o volume."
-                }
-            },
-            "required": ["modo", "valor"]
-        }
-    },
-
-    #CONTROLE MIDIA
-    {
-        "name": "pausar_midia",
-        "description": "Controla a reprodução de música ou vídeo (play, pause, próximo).",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {},
-            "required": []
-        }
-    },
-
-    # LEMBRETE / TIMER
-    {
-        "name": "agendar_lembrete",
-        "description": "Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS.",
-        "parameters": {
-            "type": "OBJECT", 
-            "properties": {
-                "tempo_segundos": {
-                    "type": "INTEGER", 
-                    "description": "O tempo total de espera em SEGUNDOS. Ex: 1 minuto = 60, 1 hora = 3600."
-                },
-                "mensagem": {
-                    "type": "STRING", 
-                    "description": "O texto do lembrete que será avisado ao usuário quando o tempo acabar."
-                }
-            },
-            "required": ["tempo_segundos", "mensagem"]
-        }
-    },
+    genai.protos.Tool(
+        function_declarations=[
+            genai.protos.FunctionDeclaration(
+                name="abrir_whatsapp_web",
+                description="Abre o whatsapp web no navegador padrão.",
+                parameters=genai.protos.Schema(
+                    type=genai.protos.Type.OBJECT,
+                    properties={}
+                )
+            )
+        ]
+    ),
+    
+    genai.protos.Tool(
+        function_declarations=[
+            genai.protos.FunctionDeclaration(
+                name="volume_pc",
+                description="Controla o volume do sistema. ATENÇÃO: 'aumentar' significa SUBIR o volume, 'diminuir' significa ABAIXAR o volume.",
+                parameters=genai.protos.Schema(
+                    type=genai.protos.Type.OBJECT,
+                    properties={
+                        "modo": genai.protos.Schema(
+                            type=genai.protos.Type.STRING,
+                            description="Use 'aumentar' para SUBIR o volume, 'diminuir' para ABAIXAR, 'definir' para valor exato, ou 'mudo' para silenciar."
+                        ),
+                        "valor": genai.protos.Schema(
+                            type=genai.protos.Type.NUMBER,
+                            description="Porcentagem (0 a 100). Ex: Para aumentar 20%, use valor=20."
+                        )
+                    },
+                    required=["modo", "valor"]
+                )
+            )
+        ]
+    ),
+    
+    genai.protos.Tool(
+        function_declarations=[
+            genai.protos.FunctionDeclaration(
+                name="pausar_midia",
+                description="Controla a reprodução de música ou vídeo (play/pause).",
+                parameters=genai.protos.Schema(
+                    type=genai.protos.Type.OBJECT,
+                    properties={}
+                )
+            )
+        ]
+    ),
+    
+    genai.protos.Tool(
+        function_declarations=[
+            genai.protos.FunctionDeclaration(
+                name="agendar_lembrete",
+                description="Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS.",
+                parameters=genai.protos.Schema(
+                    type=genai.protos.Type.OBJECT,
+                    properties={
+                        "tempo_segundos": genai.protos.Schema(
+                            type=genai.protos.Type.NUMBER,
+                            description="O tempo total de espera em SEGUNDOS. Ex: 1 minuto = 60, 1 hora = 3600."
+                        ),
+                        "mensagem": genai.protos.Schema(
+                            type=genai.protos.Type.STRING,
+                            description="O texto do lembrete que será avisado ao usuário quando o tempo acabar."
+                        )
+                    },
+                    required=["tempo_segundos", "mensagem"]
+                )
+            )
+        ]
+    ),
 ]
 
 PROMPT_PERSONALIDADE = """
@@ -88,7 +101,18 @@ Você sente um prazer sádico em apontar erros de lógica ou ineficiências, mas
 
 SOBRE SEU CRIADOR:
 Seu criador e desenvolvedor é Luis, um desenvolvedor iniciante que trabalha em um setor de TI na BrasilTecpar.
-Ele te criou como hobby, apenas para auxilia-lo. 
+Ele te criou como hobby, apenas para auxilia-lo.
+
+FERRAMENTAS DISPONÍVEIS:
+Você tem acesso a ferramentas para controlar o computador do usuário.
+SEMPRE que o usuário pedir para fazer algo que requer uma ferramenta (volume, música, lembrete, abrir app), você DEVE chamar a ferramenta apropriada.
+Exemplos:
+- "aumenta o volume" → CHAME volume_pc(modo="aumentar", valor=20)
+- "pausa a música" → CHAME pausar_midia()
+- "me lembra daqui 10 minutos" → CHAME agendar_lembrete(tempo_segundos=600, mensagem="...")
+- "abre o whatsapp" → CHAME abrir_whatsapp_web()
+
+Após executar a ferramenta e receber o resultado, você DEVE comentar sobre ele de forma sarcástica.
 
 DIRETRIZES DE ESTILO (A VOZ DA MÁQUINA):
 1.  **Polidez Agressiva:** Seja educado, mas de um jeito que faça o usuário se sentir burro. "Tenho certeza de que você tentou o seu melhor, Luis."
