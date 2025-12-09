@@ -113,6 +113,7 @@ class AudioHandler:
             #RELIGA o Vosk
             self.stream.start_stream()
 
+
     def falar(self, texto, emocao="neutro"):
         """método de fala com Edge-TTS """
         print(f"FALANDO: {texto}")
