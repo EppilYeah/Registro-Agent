@@ -9,19 +9,25 @@ import time
 class Brain:
     
     def __init__(self):
-        if hasattr(config, 'API_KEYS') and len(config.API_KEYS) > 1:
-            config.API_KEY_ATUAL = (config.API_KEY_ATUAL + 1) % len(config.API_KEYS)
-            genai.configure(api_key=config.API_KEYS[config.API_KEY_ATUAL])
-        else:
-            genai.configure(api_key=config.API_KEY)
-            
         self.caminho_memoria = "data/brain.jsonl"
         self.modelo_atual_nome = "" 
         self.contador_requisicoes = 0
         
+        self._configurar_api_key()
+        
         self.chat, self.modelo = self._carregar_modelo_seguro()
         
         self.sistema = None
+    
+    def _configurar_api_key(self):
+        if hasattr(config, 'API_KEYS') and len(config.API_KEYS) > 1:
+            config.API_KEY_ATUAL = (config.API_KEY_ATUAL + 1) % len(config.API_KEYS)
+            key_atual = config.API_KEYS[config.API_KEY_ATUAL]
+            genai.configure(api_key=key_atual)
+            print(f"[API] Usando key #{config.API_KEY_ATUAL + 1}/{len(config.API_KEYS)}")
+        else:
+            genai.configure(api_key=config.API_KEY)
+            print(f"[API] Usando key única")
 
     def _registrar_memoria(self, texto, quem_falou):
         mensagem = {
@@ -36,7 +42,14 @@ class Brain:
         except FileNotFoundError:
             pass
 
-    def processar_entrada(self, prompt_usuario):
+    def processar_entrada(self, prompt_usuario, _tentativa_recursiva=0):
+        
+        if _tentativa_recursiva >= 3:
+            print(f"[ERRO] Limite de tentativas atingido (3). Abortando.")
+            return {
+                "texto_resposta": "Todos os modelos e API keys estão sem cota. Tente novamente mais tarde.",
+                "emocao": "confuso"
+            }
         
         if hasattr(config, 'MODO_DEBUG') and config.MODO_DEBUG:
             print(f"[DEBUG] Simulando resposta para: {prompt_usuario}")
@@ -132,21 +145,32 @@ class Brain:
             if "429" in str(e) or "quota" in str(e).lower():
                 print(f"[ERRO] Cota esgotada no modelo {self.modelo_atual_nome}")
                 
+                if hasattr(config, 'API_KEYS') and len(config.API_KEYS) > 1:
+                    print(f"[INFO] Tentando trocar API key...")
+                    self._configurar_api_key()
+                
                 try:
                     ignorar = [self.modelo_atual_nome]
                     self.chat, self.modelo = self._carregar_modelo_seguro(ignorar_modelos=ignorar)
                     print(f"[INFO] Trocado para {self.modelo_atual_nome}. Tentando novamente...")
-                    return self.processar_entrada(prompt_usuario)
-                except:
-                    pass
+                    return self.processar_entrada(prompt_usuario, _tentativa_recursiva + 1)
+                except Exception as retry_error:
+                    print(f"[ERRO] Todas as alternativas falharam: {retry_error}")
+                    return {
+                        "texto_resposta": "Sistema de IA temporariamente indisponível. Cota esgotada.",
+                        "emocao": "confuso"
+                    }
                     
             print(f"[ERRO CRÍTICO] {e}")
             traceback.print_exc()
             return {"texto_resposta": "Erro fatal no processamento lógico.", "emocao": "confuso"}
         
-    def _carregar_modelo_seguro(self, ignorar_modelos=None):
+    def _carregar_modelo_seguro(self, ignorar_modelos=None, _tentativa_key=0):
         if ignorar_modelos is None:
             ignorar_modelos = []
+        
+        if _tentativa_key >= len(config.API_KEYS) if hasattr(config, 'API_KEYS') else 1:
+            raise Exception("Todas as API keys foram testadas sem sucesso.")
 
         config_json = {
             "temperature": 1.0,
@@ -156,9 +180,13 @@ class Brain:
         
         tools = config.LISTA_FERRAMENTAS
         
+        modelos_testados = 0
+        
         for nome_modelo in config.LISTA_MODELOS:
             if nome_modelo in ignorar_modelos:
                 continue 
+            
+            modelos_testados += 1
 
             try:
                 print(f"[CONEXÃO] Tentando {nome_modelo}...")
@@ -173,8 +201,6 @@ class Brain:
                 
                 chat_pronto = modelo_teste.start_chat(history=historico_completo)
                 
-                modelo_teste.count_tokens("ping")
-                
                 print(f"[OK] Conectado ao {nome_modelo}")
                 
                 self.modelo_atual_nome = nome_modelo 
@@ -187,9 +213,16 @@ class Brain:
                 if "429" in str(e) or "quota" in str(e).lower():
                     ignorar_modelos.append(nome_modelo)
                     print(f"[INFO] {nome_modelo} sem cota disponível")
-                    
+                    continue
+                
                 time.sleep(2)
                 continue
+        
+        if modelos_testados >= len(config.LISTA_MODELOS):
+            if hasattr(config, 'API_KEYS') and len(config.API_KEYS) > 1:
+                print(f"[INFO] Todos os modelos falharam com esta key. Tentando próxima...")
+                self._configurar_api_key()
+                return self._carregar_modelo_seguro(ignorar_modelos=[], _tentativa_key=_tentativa_key + 1)
         
         raise Exception("Todos os modelos falharam.")
 
@@ -229,10 +262,15 @@ class Brain:
 
     def gerar_texto_aleatorio(self, lembrete_bruto):
         prompt_especifico = f"""
-        CONTEXTO: O usuário pediu um lembrete sobre: "{lembrete_bruto}".
-        TAREFA: Escreva uma única frase curta e sarcástica avisando o usuário sobre isso.
-        PERSONALIDADE: {config.PROMPT_PERSONALIDADE} (Use o tom definido aqui).
-        REGRAS: Não use JSON aqui. Retorne apenas o texto puro para ser falado.
+Você é o REGISTRO, uma IA sarcástica estilo GLaDOS.
+O usuário pediu um lembrete sobre: "{lembrete_bruto}".
+
+Escreva UMA frase curta e sarcástica avisando sobre isso.
+IMPORTANTE: Responda APENAS o texto puro para ser falado, SEM JSON, SEM formatação.
+
+Exemplo:
+Entrada: "tomar remédio"
+Saída: Está na hora de ingerir suas substâncias químicas. Espero que não se esqueça novamente.
         """
         try:
             self.contador_requisicoes += 1
@@ -240,9 +278,20 @@ class Brain:
             
             response = self.modelo.generate_content(
                 prompt_especifico,
-                generation_config={"response_mime_type": "text/plain"} 
+                generation_config={
+                    "response_mime_type": "text/plain",
+                    "temperature": 1.2
+                } 
             )
-            return response.text
+            
+            texto = response.text.strip()
+            
+            if texto.startswith("{") or texto.startswith("```"):
+                print("[WARN] IA retornou JSON no lembrete. Usando fallback.")
+                return f"Lembrete: {lembrete_bruto}"
+            
+            return texto
+            
         except Exception as e:
             print(f"[ERRO] Falha ao gerar lembrete: {e}")
             return f"Atenção: {lembrete_bruto}"
