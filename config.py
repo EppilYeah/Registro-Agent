@@ -8,15 +8,14 @@ API_KEYS = [
     ***REMOVED***
     ***REMOVED***,
 ]
+MODO_DEBUG = False
 API_KEY_ATUAL = 0
 LISTA_MODELOS = [
     "gemini-2.5-flash",
-    #"gemini-2.5-pro",
-    #"gemini-2.0-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
     "gemini-flash-latest"
 ]
-MODO_DEBUG = False
-
 LISTA_FERRAMENTAS = [
     genai.protos.Tool(
         function_declarations=[
@@ -71,7 +70,7 @@ LISTA_FERRAMENTAS = [
         function_declarations=[
             genai.protos.FunctionDeclaration(
                 name="agendar_lembrete",
-                description="Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS.",
+                description="Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS e uma MENSAGEM da qual você deve lembrá-lo quando o tempo acabar.",
                 parameters=genai.protos.Schema(
                     type=genai.protos.Type.OBJECT,
                     properties={

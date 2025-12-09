@@ -68,7 +68,7 @@ class AudioHandler:
             # Lê um pedaço do áudio
             data = self.stream.read(4000, exception_on_overflow=False)
             
-            # Frase completa (Mais preciso)
+            # Frase completa
             if self.rec.AcceptWaveform(data):
                 resultado = json.loads(self.rec.Result())
                 texto = resultado["text"]
@@ -76,12 +76,12 @@ class AudioHandler:
                     print("WAKE WORD DETECTADA (Final)!")
                     return True
             
-            # Enquanto falo (Mais rápido)
+            # Enquanto falo
             else:
                 parcial = json.loads(self.rec.PartialResult())
                 texto_parcial = parcial["partial"]
                 if "registro" in texto_parcial:
-                    self.rec.Reset() # Limpa o buffer para não disparar 2x
+                    self.rec.Reset() 
                     print("WAKE WORD DETECTADA (Rápida)!")
                     return True
 

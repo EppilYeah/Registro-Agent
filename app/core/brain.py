@@ -58,7 +58,8 @@ class Brain:
                 "texto_resposta": "Modo debug ativo. Sem consumo de API."
             }
         
-        self._registrar_memoria(prompt_usuario, "Luis")
+        if _tentativa_recursiva == 0:
+            self._registrar_memoria(prompt_usuario, "Luis")
         
         try:
             self.contador_requisicoes += 1
@@ -105,6 +106,13 @@ class Brain:
                 self.contador_requisicoes += 1
                 print(f"[REQ #{self.contador_requisicoes}] Devolvendo resultado da ferramenta")
                 response = self.chat.send_message(partes_resposta_ferramenta)
+            
+            if not response.parts or not response.text:
+                print("[ERRO] Resposta vazia da IA")
+                return {
+                    "emocao": "confuso",
+                    "texto_resposta": "Resposta vazia do sistema."
+                }
 
             try:
                 texto_limpo = response.text.replace("```json", "").replace("```", "").strip()
@@ -137,7 +145,9 @@ class Brain:
                 dados_ia = {"emocao": "neutro", "texto_resposta": str(dados_ia)}
 
             texto_dados_ia = dados_ia.get("texto_resposta", "Sem resposta vocal.")
-            self._registrar_memoria(texto_dados_ia, "REGISTRO")
+            
+            if _tentativa_recursiva == 0:
+                self._registrar_memoria(texto_dados_ia, "REGISTRO")
             
             return dados_ia
             
