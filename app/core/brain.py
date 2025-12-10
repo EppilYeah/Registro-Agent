@@ -20,14 +20,19 @@ class Brain:
         self.sistema = None
     
     def _configurar_api_key(self):
+        """Rotaciona a chave de API sequencialmente"""
         if hasattr(config, 'API_KEYS') and len(config.API_KEYS) > 1:
+
             config.API_KEY_ATUAL = (config.API_KEY_ATUAL + 1) % len(config.API_KEYS)
+            
             key_atual = config.API_KEYS[config.API_KEY_ATUAL]
             genai.configure(api_key=key_atual)
-            print(f"[API] Usando key #{config.API_KEY_ATUAL + 1}/{len(config.API_KEYS)}")
+            
+            final_key = key_atual[-4:] if len(key_atual) > 4 else "????"
+            print(f" [API] Rotação: Key #{config.API_KEY_ATUAL + 1}/{len(config.API_KEYS)} (Final: ...{final_key})")
         else:
             genai.configure(api_key=config.API_KEY)
-            print(f"[API] Usando key única")
+            print(f" [API] Usando key única")
 
     def _registrar_memoria(self, texto, quem_falou):
         mensagem = {
