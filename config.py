@@ -1,13 +1,16 @@
 import google.generativeai as genai
+import os
+from dotenv import load_dotenv
 
-API_KEY = ***REMOVED***
+load_dotenv()
 
-API_KEYS = [
-    ***REMOVED***
-    ***REMOVED***
-    ***REMOVED***
-    ***REMOVED***,
-]
+keys_string = os.getenv("GEMINI_KEYS_ROTATION", "")
+API_KEYS = [k.strip() for k in keys_string.split(",") if k.strip()]
+
+API_KEY_ATUAL = -1 
+
+API_KEY = API_KEYS[0] if API_KEYS else os.getenv("GEMINI_API_KEY")
+
 MODO_DEBUG = False
 API_KEY_ATUAL = 0
 LISTA_MODELOS = [
