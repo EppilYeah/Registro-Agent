@@ -33,8 +33,12 @@ def ciclo_principal():
                 while modo_conversa_ativo:
                     app_visual.rosto.definir_emocao("ouvindo")
                     
-                    comando = audio.ouvir_comando()
-                    
+                    comando_pendente = None
+                    if comando_pendente:
+                        comando = comando_pendente
+                        comando_pendente = None
+                    else:
+                        comando = audio.ouvir_comando()
                     if comando:
                         tentativas_silencio = 0
                         
@@ -51,6 +55,10 @@ def ciclo_principal():
                         
 
                         audio.falar(resposta["texto_resposta"], resposta["emocao"])
+                        if audio.interrompido:
+                            print("INTERRUPÇÃO DETECTADA")
+                            comando_pendente = audio.ouvir_comando()
+                            tentativas_silencio = 0
                         
 
                         
