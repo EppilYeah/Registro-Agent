@@ -10,14 +10,24 @@ import speech_recognition as sr
 import random
 import html
 import soundfile as sf
-from pedalboard import Pedalboard, Compressor, HighpassFilter, Bitcrush, Gain, Limiter
-from pedalboard.io import AudioFile
+from pedalboard import (
+    Pedalboard, 
+    Compressor, 
+    HighpassFilter, 
+    Gain, 
+    Limiter, 
+    PeakFilter, 
+    PitchShift, 
+    Delay, 
+    Reverb, 
+    Chorus
+)
 
 
 CHUNK_SIZE = 1024
 VAD_CHUNK = 512
 RATE_HZ = 16000 
-VOICE = "pt-BR-FranciscaNeural" 
+VOICE = "pt-BR-ThalitaNeural" 
 
 class AudioHandler:
     def __init__(self):
@@ -57,39 +67,36 @@ class AudioHandler:
 
 
         self.board = Pedalboard([
+            PitchShift(semitones=4.5),
 
-            HighpassFilter(cutoff_frequency_hz=500),
+            Chorus(rate_hz=1.5, depth=0.15, centre_delay_ms=5.0, feedback=0.0, mix=0.25),
+
+            Delay(delay_seconds=0.018, feedback=0.1, mix=0.35),
+
+            PeakFilter(cutoff_frequency_hz=3800, gain_db=12, q=1.5),
+
+            Reverb(room_size=0.25, damping=0.3, wet_level=0.10, dry_level=0.45),
+
+            HighpassFilter(cutoff_frequency_hz=450),
+
+            Compressor(threshold_db=-20, ratio=8, attack_ms=0.1, release_ms=50),
             
-            Bitcrush(bit_depth=12),
+            Gain(gain_db=4),
             
-            Compressor(threshold_db=-15, ratio=4, attack_ms=1, release_ms=100),
-            
-            Gain(gain_db=3),
-            
-            Limiter(threshold_db=-1)
+            Limiter(threshold_db=-0.5)
         ])
 
     def _adicionar_respiracoes_texto(self, texto):
-        '''Simula o ritmo de pensamento antes de enviar pro TTS'''
+        '''simula o ritmo de pensamento antes de enviar pro TTS'''
         texto = texto.replace('... ', ', hmm... ') 
         return texto
 
     def _aplicar_drift_analogico(self, audio_samples, sample_rate):
-        '''
-        Cria uma oscilação suave de volume (Drift) como um rádio valvulado ou respiração.
-        '''
         num_samples = len(audio_samples)
         tempo = np.arange(num_samples) / sample_rate
-        
-        freq_resp = 0.2 
-        
-        envelope = 0.95 + 0.05 * np.sin(2 * np.pi * freq_resp * tempo)
-        
-        jitter = np.random.normal(1.0, 0.005, num_samples) 
-        
-        envelope_final = envelope * jitter
-        
-        return audio_samples * envelope_final
+        freq_resp = 0.1 
+        envelope = 0.98 + 0.02 * np.sin(2 * np.pi * freq_resp * tempo)
+        return audio_samples * envelope
 
     def falar(self, texto, emocao='neutro'):
         if not texto: return False
@@ -102,32 +109,27 @@ class AudioHandler:
         nome_arquivo = "temp_voz.mp3"
         if os.path.exists(nome_arquivo): os.remove(nome_arquivo)
 
-        caos = random.randint(-5, 5)
-        rate = "+0%"
-        pitch = "+0Hz"
+        caos = random.randint(-2, 2)
+        rate = "+10%"  
+        pitch = "-10Hz"
         volume = "+0%"
         
         if emocao == "sarcasmo_tedio":
-            rate = f"{int(-12 + caos)}%" 
-            pitch = "-5Hz"
-            volume = "-5%"
-        
+            rate = "+0%" 
+            pitch = "-15Hz" 
+            
         elif emocao == "irritado":
-            rate = f"{int(+15 + caos)}%"
-            pitch = "+4Hz"
-            volume = "+15%"
+            rate = "+25%"
+            pitch = "-5Hz"
+            volume = "+10%"
             
         elif emocao == "arrogante":
-            rate = "-8%"
-            pitch = "+2Hz"
-            
-        elif emocao == "confuso":
-            rate = "-15%"
-            pitch = "-2Hz"
+            rate = "+5%"    
+            pitch = "-12Hz" 
             
         elif emocao == "feliz": 
-            rate = "+8%"
-            pitch = f"{int(+8 + caos)}Hz"
+            rate = "+15%"
+            pitch = "-5Hz"
 
         async def gerar():
             comunicar = edge_tts.Communicate(texto_limpo, VOICE, rate=rate, pitch=pitch)
@@ -138,7 +140,7 @@ class AudioHandler:
             
             audio, sample_rate = sf.read(nome_arquivo)
             
-            if len(audio.shape) > 1: audio = audio[:, 0] # Mono
+            if len(audio.shape) > 1: audio = audio[:, 0] 
 
             audio = self._aplicar_drift_analogico(audio, sample_rate)
             
