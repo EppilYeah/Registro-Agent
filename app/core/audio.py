@@ -5,185 +5,211 @@ import vosk
 import asyncio
 import edge_tts
 import numpy as np
-from pydub import AudioSegment
-import speech_recognition as sr
-import time
 import torch
+import speech_recognition as sr
+import random
+import html
+import soundfile as sf
+from pedalboard import Pedalboard, Compressor, HighpassFilter, Bitcrush, Gain, Limiter
+from pedalboard.io import AudioFile
+
 
 CHUNK_SIZE = 1024
 VAD_CHUNK = 512
-RATE_HZ = 16000
-THRESHOLD = 1500
-VOICE = "pt-BR-FranciscaNeural"
+RATE_HZ = 16000 
+VOICE = "pt-BR-FranciscaNeural" 
 
 class AudioHandler:
     def __init__(self):
-        self.pa = pyaudio.PyAudio() #Pyaudio inicializado
-        
-        #PASTAS - 1
+        self.pa = pyaudio.PyAudio()
         pasta_atual = os.path.dirname(os.path.abspath(__file__))
-        caminho_modelo_vosk = os.path.join(pasta_atual, "modelo_vosk") # vosk
-        caminho_modelo_silero_vad = os.path.join(pasta_atual, "silero_vad.jit") # silero VAD
-        os.environ["PATH"] += os.pathsep + pasta_atual
         
-        caminho_ffmpeg = os.path.join(pasta_atual, "ffmpeg.exe")
-        caminho_ffprobe = os.path.join(pasta_atual, "ffprobe.exe")
-
-        #TORCH
-        device = torch.device('cpu')
-        self.vad_model = torch.jit.load(caminho_modelo_silero_vad) # inicialização modelo VAD
-        self.vad_model.eval() # modelo em modo de avaliação
+        #CARREGAMENTO VOSK/VAD
+        caminho_vosk = os.path.join(pasta_atual, "modelo_vosk")
+        caminho_vad = os.path.join(pasta_atual, "silero_vad.jit")
         
-        #PASTAS - 2
-        AudioSegment.converter = caminho_ffmpeg
-        AudioSegment.ffprobe = caminho_ffprobe
-        os.environ["PATH"] += os.pathsep + pasta_atual
-        
-        
-        #GOOGLE
-        self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 300
-        self.recognizer.pause_threshold = 2.0
-        self.recognizer.dynamic_energy_threshold = True
-
-        #VOSK
+        # VAD
         try:
-            self.modelo = vosk.Model(caminho_modelo_vosk)
-            self.rec = vosk.KaldiRecognizer(self.modelo, RATE_HZ)
-        except Exception as e:
-            print(f"[AUDIO] ERRO AO INICIALIZAR MODULO DE VOZ: {e}")
-            self.modelo = None
-            self.rec = None
-            
-        #PYAUDIO
-        self.stream = self.pa.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=16000,
-            input=True,
-            frames_per_buffer=8000
-        )
-        self.stream.start_stream()
+            self.vad_model = torch.jit.load(caminho_vad)
+            self.vad_model.eval()
+            print("[AUDIO] VAD Silero: OK")
+        except: self.vad_model = None
+
+        # Vosk
+        try:
+            self.modelo_vosk = vosk.Model(caminho_vosk)
+            self.rec = vosk.KaldiRecognizer(self.modelo_vosk, RATE_HZ)
+        except: pass
+
+        self.recognizer = sr.Recognizer()
+        
+        # Stream Microfone
+        try:
+            self.stream = self.pa.open(
+                format=pyaudio.paInt16, channels=1, rate=RATE_HZ,
+                input=True, frames_per_buffer=8000
+            )
+            self.stream.start_stream()
+        except: pass
         
         self.esta_falando = False
         self.interrompido = False
 
 
+        self.board = Pedalboard([
 
-    def ouvir_wake_word(self):
-        '''Ouve a wake word "registro"'''
-        print("----- AGUARDANDO ------")
-        
-        if self.stream.is_stopped():
-            self.stream.start_stream()
-        while True:
-            data = self.stream.read(4000, exception_on_overflow=False)
+            HighpassFilter(cutoff_frequency_hz=500),
             
-            if self.rec.AcceptWaveform(data):
-                resultado = json.loads(self.rec.Result())
-                texto = resultado["text"]
-                if "registro" in texto or "registros" in texto:
-                    print("WAKE WORD DETECTADA")
-                    return True
-            else:
-                parcial = json.loads(self.rec.PartialResult())
-                texto_parcial = parcial["partial"]
-                if "registro" in texto_parcial:
-                    self.rec.Reset() 
-                    print("WAKE WORD DETECTADA (Rápida)!")
-                    return True
+            Bitcrush(bit_depth=12),
+            
+            Compressor(threshold_db=-15, ratio=4, attack_ms=1, release_ms=100),
+            
+            Gain(gain_db=3),
+            
+            Limiter(threshold_db=-1)
+        ])
 
+    def _adicionar_respiracoes_texto(self, texto):
+        '''Simula o ritmo de pensamento antes de enviar pro TTS'''
+        texto = texto.replace('... ', ', hmm... ') 
+        return texto
 
-
+    def _aplicar_drift_analogico(self, audio_samples, sample_rate):
+        '''
+        Cria uma oscilação suave de volume (Drift) como um rádio valvulado ou respiração.
+        '''
+        num_samples = len(audio_samples)
+        tempo = np.arange(num_samples) / sample_rate
+        
+        freq_resp = 0.2 
+        
+        envelope = 0.95 + 0.05 * np.sin(2 * np.pi * freq_resp * tempo)
+        
+        jitter = np.random.normal(1.0, 0.005, num_samples) 
+        
+        envelope_final = envelope * jitter
+        
+        return audio_samples * envelope_final
 
     def falar(self, texto, emocao='neutro'):
-        '''metodo de fala com edge-tts'''
+        if not texto: return False
         
-        self.esta_falando = True   
-        self.interrompido = False 
-        print(F"MODULANDO : {texto}")
-        nome_arquivo = "resposta_temp.mp3"
+        texto_processado = self._adicionar_respiracoes_texto(texto)
+        texto_limpo = html.unescape(texto_processado).replace("<", "").replace(">", "").strip()
         
-        rate_str = "+20%"
-        pitch_str = "+10Hz"
+        print(f"[MIRA] Modulando: {texto_limpo[:30]}...")
+        
+        nome_arquivo = "temp_voz.mp3"
+        if os.path.exists(nome_arquivo): os.remove(nome_arquivo)
+
+        caos = random.randint(-5, 5)
+        rate = "+0%"
+        pitch = "+0Hz"
+        volume = "+0%"
         
         if emocao == "sarcasmo_tedio":
-            rate_str = "+20%"
-            pitch_str = "+10Hz"
-        elif emocao == "irritado":
-            rate_str = "+10%"
-            pitch_str = "+5Hz"
-        elif emocao == "feliz" or emocao == "arrogante":
-            rate_str = "+20%"
-            pitch_str = "+10Hz"
-        elif emocao == "confuso":
-            rate_str = "-10%"; pitch_str = "-5Hz"
-            
-        if os.path.exists(nome_arquivo):
-            os.remove(nome_arquivo)
+            rate = f"{int(-12 + caos)}%" 
+            pitch = "-5Hz"
+            volume = "-5%"
         
+        elif emocao == "irritado":
+            rate = f"{int(+15 + caos)}%"
+            pitch = "+4Hz"
+            volume = "+15%"
+            
+        elif emocao == "arrogante":
+            rate = "-8%"
+            pitch = "+2Hz"
+            
+        elif emocao == "confuso":
+            rate = "-15%"
+            pitch = "-2Hz"
+            
+        elif emocao == "feliz": 
+            rate = "+8%"
+            pitch = f"{int(+8 + caos)}Hz"
+
         async def gerar():
-            comunicar = edge_tts.Communicate(texto, VOICE, pitch=pitch_str, rate=rate_str)
+            comunicar = edge_tts.Communicate(texto_limpo, VOICE, rate=rate, pitch=pitch)
             await comunicar.save(nome_arquivo)
             
-        asyncio.run(gerar())
-        # TODO: CRIAR EFEITOS PRA APLICAR <--
-        fala_fragmentada = AudioSegment.from_mp3(nome_arquivo)
-        fala_convertida = fala_fragmentada.set_frame_rate(RATE_HZ)
-        fala_bytes = fala_convertida.raw_data
-
-        stream_out = self.pa.open(
-        format=pyaudio.paInt16,
-        channels=1,
-        rate=RATE_HZ,
-        output=True 
-        )
         try:
-            for i in range(0, len(fala_bytes), CHUNK_SIZE):
-                chunk_out = fala_bytes[i:i + CHUNK_SIZE]
-                stream_out.write(chunk_out)
-                
-                dados_mic = self.stream.read(VAD_CHUNK, exception_on_overflow=False)
-                
-                if self.vad_model:
-                    audio_int16 = np.frombuffer(dados_mic, dtype=np.int16) # converte a porra dos bytes pra array int16 numpy
-                    audio_float32 = audio_int16.astype(np.float32) / 32768.0 # normaliza essa merda pra float32
-                    tensor_audio = torch.from_numpy(audio_float32)
-                    probabilidade = self.vad_model(tensor_audio, 16000).item()
-                    
-                    if probabilidade > 0.5: #50% de certeza
-                        print(f"INTERROMPIDO - VOZ DETECTADA - CONFIANÇA: {probabilidade:.2f}")
-                        self.interrompido = True
-                        break
-        finally:
-            self.esta_falando = False
-        stream_out.stop_stream()
-        stream_out.close()
-        return self.interrompido
-        
-    def ouvir_comando(self):
-        
-        self.stream.stop_stream()
-        print("OUVINDO")
-        try:
-            with sr.Microphone() as source: # microfone inicializado
-                self.recognizer.adjust_for_ambient_noise(source)
-                try:
-                    audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=None)
-                    print("PROCESSANDO")
-                    comando = self.recognizer.recognize_google(audio, language="pt-BR")
-                    print(f"VOCÊ DISSE: {comando}")
-                    return comando
-                except sr.WaitTimeoutError:
-                    print(". . .")
-                    return None
-                except sr.UnknownValueError:
-                    print("NÃO ENTENDIDO")
-                    return None
-                except Exception as e:
-                    print(f"ERRO: {e}")
-                    return None
-        finally:
-            #RELIGA o Vosk
-            self.stream.start_stream()
+            asyncio.run(gerar())
             
+            audio, sample_rate = sf.read(nome_arquivo)
+            
+            if len(audio.shape) > 1: audio = audio[:, 0] # Mono
+
+            audio = self._aplicar_drift_analogico(audio, sample_rate)
+            
+            audio_processado = self.board(audio, sample_rate)
+            
+            audio_int16 = (audio_processado * 32767).astype(np.int16)
+            fala_bytes = audio_int16.tobytes()
+            
+            self.esta_falando = True
+            self.interrompido = False
+            
+
+            stream_out = self.pa.open(
+                format=pyaudio.paInt16, 
+                channels=1, 
+                rate=sample_rate, 
+                output=True
+            )
+            
+            total_bytes = len(fala_bytes)
+            cursor = 0
+            chunk_size = 1024 * 2 
+            
+            while cursor < total_bytes:
+                if self.interrompido: break
+                
+                chunk = fala_bytes[cursor : cursor + chunk_size]
+                stream_out.write(chunk)
+                cursor += chunk_size
+                
+                if cursor < total_bytes - (chunk_size * 5):
+                    try:
+                        dados = self.stream.read(VAD_CHUNK, exception_on_overflow=False)
+                        if self.vad_model:
+                            audio_float = np.frombuffer(dados, np.int16).astype(np.float32) / 32768.0
+                            tensor = torch.from_numpy(audio_float)
+                            conf = self.vad_model(tensor, 16000).item()
+                            if conf > 0.6:
+                                print(f"[CORTADO] Conf: {conf:.2f}")
+                                self.interrompido = True
+                    except: pass
+
+            stream_out.stop_stream()
+            stream_out.close()
+            self.esta_falando = False
+            return self.interrompido
+
+        except Exception as e:
+            print(f"[ERRO AUDIO] {e}")
+            self.esta_falando = False
+            return False
+
+    def ouvir_wake_word(self):
+        if self.stream.is_stopped(): self.stream.start_stream()
+        while True:
+            try:
+                data = self.stream.read(4000, exception_on_overflow=False)
+                if self.rec.AcceptWaveform(data):
+                    if "registro" in json.loads(self.rec.Result())["text"]: return True
+                else:
+                    if "registro" in json.loads(self.rec.PartialResult()).get("partial", ""):
+                        self.rec.Reset(); return True
+            except: pass
+
+    def ouvir_comando(self):
+        self.stream.stop_stream()
+        print("🎤")
+        try:
+            with sr.Microphone() as s:
+                self.recognizer.adjust_for_ambient_noise(s, duration=0.5)
+                audio = self.recognizer.listen(s, timeout=4)
+                return self.recognizer.recognize_google(audio, language="pt-BR")
+        except: return None
+        finally: self.stream.start_stream()
