@@ -53,6 +53,9 @@ class AudioHandler:
         except: pass
 
         self.recognizer = sr.Recognizer()
+        self.recognizer.pause_threshold = 2.0
+        self.recognizer.energy_threshold = 300 
+        self.recognizer.dynamic_energy_threshold = True
         
         # Stream Microfone
         try:
@@ -216,7 +219,7 @@ class AudioHandler:
         try:
             with sr.Microphone() as s:
                 self.recognizer.adjust_for_ambient_noise(s, duration=0.5)
-                audio = self.recognizer.listen(s, timeout=4)
+                audio = self.recognizer.listen(s, timeout=5, phrase_time_limit=15)
                 return self.recognizer.recognize_google(audio, language="pt-BR")
         except: return None
         finally: self.stream.start_stream()
