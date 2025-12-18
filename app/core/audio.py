@@ -1,4 +1,5 @@
 import os
+import io
 import json
 import pyaudio
 import vosk
@@ -67,7 +68,7 @@ class AudioHandler:
 
 
         self.board = Pedalboard([
-            PitchShift(semitones=4.5),
+            PitchShift(semitones=2.0),
 
             Chorus(rate_hz=1.5, depth=0.15, centre_delay_ms=5.0, feedback=0.0, mix=0.25),
 
@@ -101,49 +102,42 @@ class AudioHandler:
     def falar(self, texto, emocao='neutro'):
         if not texto: return False
         
-        texto_processado = self._adicionar_respiracoes_texto(texto)
-        texto_limpo = html.unescape(texto_processado).replace("<", "").replace(">", "").strip()
-        
-        print(f"[MIRA] Modulando: {texto_limpo[:30]}...")
-        
-        nome_arquivo = "temp_voz.mp3"
-        if os.path.exists(nome_arquivo): os.remove(nome_arquivo)
+        texto_limpo = html.unescape(self._adicionar_respiracoes_texto(texto)).replace("<", "").replace(">", "").strip()
+        print(f"[MIRA] Modulando: {texto_limpo}...")
 
-        caos = random.randint(-2, 2)
-        rate = "+10%"  
+
+        rate = "+10%"
         pitch = "-10Hz"
         volume = "+0%"
         
         if emocao == "sarcasmo_tedio":
-            rate = "+0%" 
-            pitch = "-15Hz" 
-            
+            rate = "+0%"; pitch = "-15Hz"
         elif emocao == "irritado":
-            rate = "+25%"
-            pitch = "-5Hz"
-            volume = "+10%"
-            
+            rate = "+25%"; pitch = "-5Hz"; volume = "+10%"
         elif emocao == "arrogante":
-            rate = "+5%"    
-            pitch = "-12Hz" 
-            
+            rate = "+5%"; pitch = "-12Hz"
         elif emocao == "feliz": 
-            rate = "+15%"
-            pitch = "-5Hz"
+            rate = "+15%"; pitch = "-5Hz"
 
-        async def gerar():
-            comunicar = edge_tts.Communicate(texto_limpo, VOICE, rate=rate, pitch=pitch)
-            await comunicar.save(nome_arquivo)
+        async def gerar_e_tocar():
+
+            comunicar = edge_tts.Communicate(
+                texto_limpo, VOICE, rate=rate, pitch=pitch, volume=volume
+            )
             
-        try:
-            asyncio.run(gerar())
+            memoria_audio = io.BytesIO()
             
-            audio, sample_rate = sf.read(nome_arquivo)
+            async for chunk in comunicar.stream():
+                if chunk["type"] == "audio":
+                    memoria_audio.write(chunk["data"])
             
-            if len(audio.shape) > 1: audio = audio[:, 0] 
+            memoria_audio.seek(0)
+            
+            audio, sample_rate = sf.read(memoria_audio)
+            
+            if len(audio.shape) > 1: audio = audio[:, 0]
 
             audio = self._aplicar_drift_analogico(audio, sample_rate)
-            
             audio_processado = self.board(audio, sample_rate)
             
             audio_int16 = (audio_processado * 32767).astype(np.int16)
@@ -152,17 +146,17 @@ class AudioHandler:
             self.esta_falando = True
             self.interrompido = False
             
-
             stream_out = self.pa.open(
-                format=pyaudio.paInt16, 
-                channels=1, 
-                rate=sample_rate, 
-                output=True
+                format=pyaudio.paInt16, channels=1, 
+                rate=sample_rate, output=True
             )
             
             total_bytes = len(fala_bytes)
             cursor = 0
-            chunk_size = 1024 * 2 
+            chunk_size = CHUNK_SIZE * 4
+            
+            consecutivos_voz = 0
+            LIMITE_CONFIRMACAO = 3
             
             while cursor < total_bytes:
                 if self.interrompido: break
@@ -171,23 +165,34 @@ class AudioHandler:
                 stream_out.write(chunk)
                 cursor += chunk_size
                 
-                if cursor < total_bytes - (chunk_size * 5):
+                if cursor < total_bytes - (chunk_size * 2):
                     try:
                         dados = self.stream.read(VAD_CHUNK, exception_on_overflow=False)
                         if self.vad_model:
                             audio_float = np.frombuffer(dados, np.int16).astype(np.float32) / 32768.0
-                            tensor = torch.from_numpy(audio_float)
-                            conf = self.vad_model(tensor, 16000).item()
-                            if conf > 0.6:
-                                print(f"[CORTADO] Conf: {conf:.2f}")
+                            conf = self.vad_model(torch.from_numpy(audio_float), 16000).item()
+                            
+                            if conf > 0.8:
+                                consecutivos_voz += 1
+                            else:
+                                consecutivos_voz = 0
+                            
+                            if consecutivos_voz >= LIMITE_CONFIRMACAO:
+                                print(f"[INTERRUPÇÃO] Detectada.")
                                 self.interrompido = True
                     except: pass
 
             stream_out.stop_stream()
             stream_out.close()
+            
+            if self.interrompido:
+                await asyncio.sleep(0.1)
+                
             self.esta_falando = False
             return self.interrompido
 
+        try:
+            return asyncio.run(gerar_e_tocar())
         except Exception as e:
             print(f"[ERRO AUDIO] {e}")
             self.esta_falando = False
@@ -207,7 +212,7 @@ class AudioHandler:
 
     def ouvir_comando(self):
         self.stream.stop_stream()
-        print("🎤")
+        print("OUVINDO COMANDO. . . ")
         try:
             with sr.Microphone() as s:
                 self.recognizer.adjust_for_ambient_noise(s, duration=0.5)
