@@ -68,7 +68,7 @@ class AudioHandler:
 
 
         self.board = Pedalboard([
-            PitchShift(semitones=2.0),
+            PitchShift(semitones=2.5),
 
             Chorus(rate_hz=1.5, depth=0.15, centre_delay_ms=5.0, feedback=0.0, mix=0.25),
 
@@ -107,7 +107,7 @@ class AudioHandler:
 
 
         rate = "+10%"
-        pitch = "-10Hz"
+        pitch = "-15Hz"
         volume = "+0%"
         
         if emocao == "sarcasmo_tedio":

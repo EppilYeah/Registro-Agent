@@ -30,9 +30,6 @@ def ciclo_principal():
                 tentativas_silencio = 0
                 comando_atual = None 
                 
-
-                audio.falar("Sim?", "neutro") 
-
                 while modo_conversa:
                     app_visual.rosto.definir_emocao("ouvindo")
                     app_visual.atualizar_texto("Ouvindo...")
