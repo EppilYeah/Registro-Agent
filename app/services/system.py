@@ -4,8 +4,11 @@ import subprocess
 import datetime
 import pyautogui
 import math
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IMMDeviceEnumerator, EDataFlow, ERole
 from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
+from comtypes import CoCreateInstance, GUID
+
 
 
 class Systemhandler:
@@ -28,21 +31,30 @@ class Systemhandler:
     
     def _inicializar_audio(self):
         try:
-            CoInitialize()
+            CLSID_MMDeviceEnumerator = GUID('{BCDE0395-E52F-467C-8E3D-C4579291692E}')
+            IID_IMMDeviceEnumerator = GUID('{A95664D2-9614-4F35-A746-DE8DB63617E6}')
             
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            deviceEnumerator = CoCreateInstance(
+                CLSID_MMDeviceEnumerator,
+                IMMDeviceEnumerator,
+                CLSCTX_ALL
+            )
             
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            device = deviceEnumerator.GetDefaultAudioEndpoint(EDataFlow.eRender.value, ERole.eMultimedia.value)
+            
+            IID_IAudioEndpointVolume = GUID('{5CDF2C82-841E-4546-9722-0CF74078229A}')
+            interface = device.Activate(IID_IAudioEndpointVolume, CLSCTX_ALL, None)
             self.volume_control = cast(interface, POINTER(IAudioEndpointVolume))
             
             volume_atual = self.volume_control.GetMasterVolumeLevelScalar()
             print(f"[AUDIO] Driver carregado. Volume atual: {int(volume_atual * 100)}%")
             
-        except AttributeError as e:
-            print(f"[AUDIO] Erro de interface COM: {e}")
-            print("[AUDIO] Tente: pip uninstall pycaw && pip install pycaw")
+        except Exception as e:
+            print(f"[AUDIO] Falha ao inicializar: {e}")
+            import traceback
+            traceback.print_exc()
             self.volume_control = None
+                
         except Exception as e:
             print(f"[AUDIO] Falha ao inicializar driver: {e}")
             import traceback
