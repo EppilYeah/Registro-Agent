@@ -12,7 +12,6 @@ API_KEY_ATUAL = -1
 API_KEY = API_KEYS[0] if API_KEYS else os.getenv("GEMINI_API_KEY")
 
 MODO_DEBUG = False
-API_KEY_ATUAL = 0
 LISTA_MODELOS = [
     "gemini-2.5-flash",
     "gemini-2.5-pro",
