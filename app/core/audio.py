@@ -1,249 +1,212 @@
 import os
 import io
 import json
+import asyncio
+import html
 import pyaudio
 import vosk
-import asyncio
 import edge_tts
-import numpy as np
 import torch
 import speech_recognition as sr
-import random
-import html
 import soundfile as sf
-from pedalboard import (
-    Pedalboard,
-    Compressor,
-    HighpassFilter,
-    Gain,
-    Limiter,
-    PeakFilter,
-    PitchShift,
-    Delay,
-    Reverb,
-    Chorus
-)
+import numpy as np
+from pedalboard import Pedalboard, Compressor, HighpassFilter, Gain, Limiter, PeakFilter, PitchShift, Delay, Reverb, Chorus
 
+# CONFIGURAÇÕES E CONSTANTES
+CONF = {
+    "rate": 16000, "chunk": 1024, "vad_chunk": 512,
+    "voice": "pt-BR-ThalitaNeural",
+    "paths": {"vosk": "modelo_vosk", "vad": "silero_vad.jit"}
+}
 
-CHUNK_SIZE = 1024
-VAD_CHUNK = 512
-RATE_HZ = 16000
-VOICE = "pt-BR-ThalitaNeural"
+EMOCOES = {
+    "neutro":         {"rate": "+10%", "pitch": "-15Hz", "volume": "+0%"},
+    "sarcasmo_tedio": {"rate": "+0%",  "pitch": "-15Hz", "volume": "+0%"},
+    "irritado":       {"rate": "+25%", "pitch": "-5Hz",  "volume": "+10%"},
+    "arrogante":      {"rate": "+5%",  "pitch": "-12Hz", "volume": "+0%"},
+    "feliz":          {"rate": "+15%", "pitch": "-5Hz",  "volume": "+0%"}
+}
 
 
 class AudioHandler:
     def __init__(self):
         self.pa = pyaudio.PyAudio()
-        pasta_atual = os.path.dirname(os.path.abspath(__file__))
+        self.root = os.path.dirname(os.path.abspath(__file__))
 
-        # CARREGAMENTO VOSK/VAD
-        caminho_vosk = os.path.join(pasta_atual, "modelo_vosk")
-        caminho_vad = os.path.join(pasta_atual, "silero_vad.jit")
+        # inicialização de Modelos (VAD, Vosk, SR)
+        self._carregar_modelos()
 
-        # VAD
+        # Inicialização de Stream e Estado
+        self.stream = self._iniciar_mic()
+        self.falando = False
+        self.interrompido = False
+
+        # efeitos
+        self.board = Pedalboard([
+            PitchShift(semitones=2.5),
+            Chorus(rate_hz=1.5, depth=0.15,
+                   centre_delay_ms=5.0, feedback=0.0, mix=0.25),
+            Delay(delay_seconds=0.018, feedback=0.1, mix=0.35),
+            PeakFilter(cutoff_frequency_hz=3800, gain_db=12, q=1.5),
+            Reverb(room_size=0.25, damping=0.3, wet_level=0.1, dry_level=0.45),
+            HighpassFilter(cutoff_frequency_hz=450),
+            Compressor(threshold_db=-20, ratio=8,
+                       attack_ms=0.1, release_ms=50),
+            Gain(gain_db=4), Limiter(threshold_db=-0.5)
+        ])
+
+    def _carregar_modelos(self):
+        """Carrega recursos pesados"""
         try:
-            self.vad_model = torch.jit.load(caminho_vad)
-            self.vad_model.eval()
-            print("[AUDIO] VAD Silero: OK")
+            path_vad = os.path.join(self.root, CONF["paths"]["vad"])
+            self.vad_model = torch.jit.load(path_vad).eval()
         except:
             self.vad_model = None
 
-        # Vosk
         try:
-            self.modelo_vosk = vosk.Model(caminho_vosk)
-            self.rec = vosk.KaldiRecognizer(self.modelo_vosk, RATE_HZ)
+            path_vosk = os.path.join(self.root, CONF["paths"]["vosk"])
+            self.rec_vosk = vosk.KaldiRecognizer(
+                vosk.Model(path_vosk), CONF["rate"])
         except:
-            pass
+            self.rec_vosk = None
 
-        self.recognizer = sr.Recognizer()
-        self.recognizer.pause_threshold = 2.0
-        self.recognizer.energy_threshold = 300
-        self.recognizer.dynamic_energy_threshold = True
+        self.rec_sr = sr.Recognizer()
+        self.rec_sr.pause_threshold = 2.0
+        self.rec_sr.energy_threshold = 300
+        self.rec_sr.dynamic_energy_threshold = True
 
-        # Stream Microfone
+    def _iniciar_mic(self):
         try:
-            self.stream = self.pa.open(
-                format=pyaudio.paInt16, channels=1, rate=RATE_HZ,
-                input=True, frames_per_buffer=8000
-            )
-            self.stream.start_stream()
+            stream = self.pa.open(format=pyaudio.paInt16, channels=1, rate=CONF["rate"],
+                                  input=True, frames_per_buffer=8000)
+            stream.start_stream()
+            return stream
         except:
-            pass
+            return None
 
-        self.esta_falando = False
-        self.interrompido = False
+    # PROCESSAMENTO DE ÁUDIO
+    def _efeitos_analogicos(self, audio, sr):
+        """Drift Matemático + Pedalboard"""
+        # Drift
+        t = np.arange(len(audio)) / sr
+        envelope = 0.98 + 0.02 * np.sin(2 * np.pi * 0.1 * t)
+        audio_drift = audio * envelope
 
-        self.board = Pedalboard([
-            PitchShift(semitones=2.5),
+        # Pedalboard
+        processado = self.board(audio_drift, sr)
+        return (processado * 32767).astype(np.int16).tobytes()
 
-            Chorus(rate_hz=1.5, depth=0.15,
-                   centre_delay_ms=5.0, feedback=0.0, mix=0.25),
+    async def _sintetizar_tts(self, texto, params):
+        """áudio cru do EdgeTTS"""
+        comunicar = edge_tts.Communicate(texto, CONF["voice"], **params)
+        memoria = io.BytesIO()
+        async for chunk in comunicar.stream():
+            if chunk["type"] == "audio":
+                memoria.write(chunk["data"])
+        memoria.seek(0)
+        return sf.read(memoria)  # retorna data, samplerate
 
-            Delay(delay_seconds=0.018, feedback=0.1, mix=0.35),
+    # LOOP DE REPRODUÇÃO COM VAD
+    def _tocar_monitorando(self, audio_bytes, sample_rate):
+        self.falando, self.interrompido = True, False
+        out_stream = self.pa.open(
+            format=pyaudio.paInt16, channels=1, rate=sample_rate, output=True)
 
-            PeakFilter(cutoff_frequency_hz=3800, gain_db=12, q=1.5),
+        cursor = 0
+        total = len(audio_bytes)
+        step = CONF["chunk"] * 4
+        voz_consecutiva = 0
 
-            Reverb(room_size=0.25, damping=0.3,
-                   wet_level=0.10, dry_level=0.45),
+        while cursor < total and not self.interrompido:
+            # toca trecho
+            chunk = audio_bytes[cursor: cursor + step]
+            out_stream.write(chunk)
+            cursor += step
 
-            HighpassFilter(cutoff_frequency_hz=450),
+            # Verifica Interrupção (VAD)
+            if self.vad_model and self.stream and (cursor < total - step):
+                try:
+                    raw = self.stream.read(
+                        CONF["vad_chunk"], exception_on_overflow=False)
+                    float_audio = np.frombuffer(
+                        raw, np.int16).astype(np.float32) / 32768.0
+                    conf = self.vad_model(
+                        torch.from_numpy(float_audio), 16000).item()
 
-            Compressor(threshold_db=-20, ratio=8,
-                       attack_ms=0.1, release_ms=50),
+                    if conf > 0.8:
+                        voz_consecutiva += 1
+                    else:
+                        voz_consecutiva = 0
 
-            Gain(gain_db=4),
+                    if voz_consecutiva >= 3:
+                        print("[MIRA] Interrupção detectada.")
+                        self.interrompido = True
+                except:
+                    pass
 
-            Limiter(threshold_db=-0.5)
-        ])
+        out_stream.stop_stream()
+        out_stream.close()
+        self.falando = False
+        return self.interrompido
 
-    def _adicionar_respiracoes_texto(self, texto):
-        '''simula o ritmo de pensamento antes de enviar pro TTS'''
-        texto = texto.replace('... ', ', hmmm... ')
-        return texto
-
-    def _aplicar_drift_analogico(self, audio_samples, sample_rate):
-        num_samples = len(audio_samples)
-        tempo = np.arange(num_samples) / sample_rate
-        freq_resp = 0.1
-        envelope = 0.98 + 0.02 * np.sin(2 * np.pi * freq_resp * tempo)
-        return audio_samples * envelope
-
+    # API PÚBLICA
     def falar(self, texto, emocao='neutro'):
         if not texto:
             return False
 
-        texto_limpo = html.unescape(self._adicionar_respiracoes_texto(
-            texto)).replace("<", "").replace(">", "").strip()
-        print(f"[MIRA] Modulando: {texto_limpo}...")
+        # Prepara texto
+        txt = html.unescape(texto.replace('... ', ', hmmm... ')).replace(
+            "<", "").replace(">", "").strip()
+        print(f"[REGISTRO] Falando: {txt}...")
 
-        rate = "+10%"
-        pitch = "-15Hz"
-        volume = "+0%"
+        # Seleciona parametros
+        params = EMOCOES.get(emocao, EMOCOES['neutro'])
 
-        if emocao == "sarcasmo_tedio":
-            rate = "+0%"
-            pitch = "-15Hz"
-        elif emocao == "irritado":
-            rate = "+25%"
-            pitch = "-5Hz"
-            volume = "+10%"
-        elif emocao == "arrogante":
-            rate = "+5%"
-            pitch = "-12Hz"
-        elif emocao == "feliz":
-            rate = "+15%"
-            pitch = "-5Hz"
+        async def _executar():
+            try:
+                data, sr_tts = await self._sintetizar_tts(txt, params)
+                audio_mono = data if len(data.shape) == 1 else data[:, 0]
+                audio_final = self._efeitos_analogicos(audio_mono, sr_tts)
 
-        async def gerar_e_tocar():
-
-            comunicar = edge_tts.Communicate(
-                texto_limpo, VOICE, rate=rate, pitch=pitch, volume=volume
-            )
-
-            memoria_audio = io.BytesIO()
-
-            async for chunk in comunicar.stream():
-                if chunk["type"] == "audio":
-                    memoria_audio.write(chunk["data"])
-
-            memoria_audio.seek(0)
-
-            audio, sample_rate = sf.read(memoria_audio)
-
-            if len(audio.shape) > 1:
-                audio = audio[:, 0]
-
-            audio = self._aplicar_drift_analogico(audio, sample_rate)
-            audio_processado = self.board(audio, sample_rate)
-
-            audio_int16 = (audio_processado * 32767).astype(np.int16)
-            fala_bytes = audio_int16.tobytes()
-
-            self.esta_falando = True
-            self.interrompido = False
-
-            stream_out = self.pa.open(
-                format=pyaudio.paInt16, channels=1,
-                rate=sample_rate, output=True
-            )
-
-            total_bytes = len(fala_bytes)
-            cursor = 0
-            chunk_size = CHUNK_SIZE * 4
-
-            consecutivos_voz = 0
-            LIMITE_CONFIRMACAO = 3
-
-            while cursor < total_bytes:
                 if self.interrompido:
-                    break
+                    # breve pausa se foi interrompido antes
+                    await asyncio.sleep(0.1)
+                return self._tocar_monitorando(audio_final, sr_tts)
+            except Exception as e:
+                print(f"[ERRO TTS] {e}")
+                return False
 
-                chunk = fala_bytes[cursor: cursor + chunk_size]
-                stream_out.write(chunk)
-                cursor += chunk_size
-
-                if cursor < total_bytes - (chunk_size * 2):
-                    try:
-                        dados = self.stream.read(
-                            VAD_CHUNK, exception_on_overflow=False)
-                        if self.vad_model:
-                            audio_float = np.frombuffer(
-                                dados, np.int16).astype(np.float32) / 32768.0
-                            conf = self.vad_model(
-                                torch.from_numpy(audio_float), 16000).item()
-
-                            if conf > 0.8:
-                                consecutivos_voz += 1
-                            else:
-                                consecutivos_voz = 0
-
-                            if consecutivos_voz >= LIMITE_CONFIRMACAO:
-                                print(f"[INTERRUPÇÃO] Detectada.")
-                                self.interrompido = True
-                    except:
-                        pass
-
-            stream_out.stop_stream()
-            stream_out.close()
-
-            if self.interrompido:
-                await asyncio.sleep(0.1)
-
-            self.esta_falando = False
-            return self.interrompido
-
-        try:
-            return asyncio.run(gerar_e_tocar())
-        except Exception as e:
-            print(f"[ERRO AUDIO] {e}")
-            self.esta_falando = False
-            return False
+        return asyncio.run(_executar())
 
     def ouvir_wake_word(self):
         if self.stream.is_stopped():
             self.stream.start_stream()
+        print("[REGISTRO] Aguardando Wake Word...")
         while True:
             try:
                 data = self.stream.read(4000, exception_on_overflow=False)
-                if self.rec.AcceptWaveform(data):
-                    if "registro" in json.loads(self.rec.Result())["text"]:
-                        return True
+                if self.rec_vosk.AcceptWaveform(data):
+                    res = json.loads(self.rec_vosk.Result())
                 else:
-                    if "registro" in json.loads(self.rec.PartialResult()).get("partial", ""):
-                        self.rec.Reset()
-                        return True
+                    res = json.loads(self.rec_vosk.PartialResult())
+
+                if "registro" in res.get("text", "") or "registro" in res.get("partial", ""):
+                    self.rec_vosk.Reset()
+                    return True
             except:
                 pass
 
     def ouvir_comando(self):
         self.stream.stop_stream()
-        print("OUVINDO COMANDO. . . ")
+        print("[REGISTRO] Ouvindo comando...")
         try:
-            with sr.Microphone() as s:
-                self.recognizer.adjust_for_ambient_noise(s, duration=0.5)
-                audio = self.recognizer.listen(
-                    s, timeout=5, phrase_time_limit=15)
-                return self.recognizer.recognize_google(audio, language="pt-BR")
+            with sr.Microphone() as source:
+                self.rec_sr.adjust_for_ambient_noise(source, duration=0.5)
+                audio = self.rec_sr.listen(
+                    source, timeout=5, phrase_time_limit=15)
+                return self.rec_sr.recognize_google(audio, language="pt-BR")
+        except sr.WaitTimeoutError:
+            return None
         except:
             return None
         finally:
