@@ -98,7 +98,7 @@ class AudioHandler:
 
     def _adicionar_respiracoes_texto(self, texto):
         '''simula o ritmo de pensamento antes de enviar pro TTS'''
-        texto = texto.replace('... ', ', hmm... ')
+        texto = texto.replace('... ', ', hmmm... ')
         return texto
 
     def _aplicar_drift_analogico(self, audio_samples, sample_rate):
