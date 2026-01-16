@@ -130,15 +130,18 @@ class AudioHandler:
                         CONF["vad_chunk"], exception_on_overflow=False)
                     float_audio = np.frombuffer(
                         raw, np.int16).astype(np.float32) / 32768.0
+                    
+                    energia = np.sqrt(np.mean(float_audio ** 2))
+                    
                     conf = self.vad_model(
                         torch.from_numpy(float_audio), 16000).item()
 
-                    if conf > 0.8:
+                    if conf > 0.92 and energia > 0.05:
                         voz_consecutiva += 1
                     else:
-                        voz_consecutiva = 0
+                        voz_consecutiva = max(0, voz_consecutiva - 1) 
 
-                    if voz_consecutiva >= 3:
+                    if voz_consecutiva >= 8:
                         print("[MIRA] Interrupção detectada.")
                         self.interrompido = True
                 except:
