@@ -7,6 +7,7 @@ import pyaudio
 import vosk
 import edge_tts
 import torch
+import eel
 import speech_recognition as sr
 import soundfile as sf
 import numpy as np
@@ -164,7 +165,7 @@ class AudioHandler:
 
         # Seleciona parametros
         params = EMOCOES.get(emocao, EMOCOES['neutro'])
-
+        
         async def _executar():
             try:
                 data, sr_tts = await self._sintetizar_tts(txt, params)
