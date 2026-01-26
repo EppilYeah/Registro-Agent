@@ -16,7 +16,6 @@ brain.sistema = sistema
 def ciclo_principal():
     audio.falar("REGISTRO INICIADO", "neutro")
     eel.jsAtualizarRosto("neutro", False)
-    eel.jsAtualizarTexto("AGUARDANDO 'REGISTRO'...")
     
     while True:
         try:
@@ -28,7 +27,6 @@ def ciclo_principal():
                 
                 while modo_conversa:
                     eel.jsAtualizarRosto("ouvindo", False)
-                    eel.jsAtualizarTexto("OUVINDO")
                     
                     if not comando_atual:
                         comando_atual = audio.ouvir_comando()
@@ -43,7 +41,6 @@ def ciclo_principal():
                             break
                         
                         eel.jsAtualizarRosto("confuso", False)
-                        eel.jsAtualizarTexto("PROCESSANDO")
                         
                         resposta = brain.processar_entrada(comando_atual)
                         
@@ -55,7 +52,6 @@ def ciclo_principal():
                         
                         if foi_interrompido:
                             print("--- INTERROMPIDO ---")
-                            eel.jsAtualizarTexto("INTERROMPIDO")
                             eel.jsAtualizarRosto("irritado") 
                             
 
@@ -74,11 +70,9 @@ def ciclo_principal():
                         if tentativas_silencio >= 2:
                             print("--- TIMEOUT ---")
                             
-                            eel.jsAtualizarTexto("REGISTRO FINALIZADO")
                             eel.jsAtualizarRosto("neutro")
                             modo_conversa = False
                         else:
-                            eel.js.AtualizarTexto("...")
             time.sleep(0.1)
         
         except Exception as e:
