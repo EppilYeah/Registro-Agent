@@ -1,4 +1,3 @@
-
 let colunas = 50;
 let linhas = 50;
 let tamanhoPixel;
@@ -104,7 +103,6 @@ const EXPRESSOES = {
         intensidadeRespiracao: 0.04,
         comportamentoPupila: "centralizado",
         formatoOlho: "circular",
-        ondasSonoras: true
     }
 };
 
@@ -112,8 +110,7 @@ let expressaoAtual = EXPRESSOES["neutro"];
 let expressaoAlvo = EXPRESSOES["neutro"];
 
 eel.expose(jsAtualizarRosto);
-function jsAtualizarRosto(emocao, falando) {
-    console.log(`[UI] Emoção: ${emocao} | Falando: ${falando}`);
+function jsAtualizarRosto(emocao, falando) {;
     
     estaFalando = falando;
     expressaoAlvo = EXPRESSOES[emocao] || EXPRESSOES["neutro"];
@@ -129,8 +126,6 @@ function jsAtualizarRosto(emocao, falando) {
 
 eel.expose(jsAtualizarOlhar);
 function jsAtualizarOlhar(x, y, encontrouRosto) {
-    console.log(`[VISION] Rosto: ${encontrouRosto} | X: ${x.toFixed(2)} | Y: ${y.toFixed(2)}`);
-    
     rastreamentoCamera.ativo = encontrouRosto;
     rastreamentoCamera.x = x;
     rastreamentoCamera.y = y;
@@ -144,8 +139,6 @@ function setup() {
     
     console.log("[UI] Canvas inicializado");
 }
-
-
 
 function draw() {
     background(10);
@@ -183,7 +176,6 @@ function draw() {
     
     // Desenhar o olho
     desenharOlho();
-    
 }
 
 
@@ -303,16 +295,7 @@ function desenharOlho() {
                     alpha = pixelPupila.alpha;
                 }
             }
-            
-            // Ondas sonoras 
-            if (expressaoAtual.ondasSonoras && !pixel && !estaFalando) {
-                let ondas = desenharOndasSonoras(distCentro, raioComDeformacao);
-                if (ondas) {
-                    pixel = true;
-                    alpha = ondas;
-                }
-            }
-            
+
             // Piscada
             if (piscando) {
                 let progressoPiscada = (millis() - tempoUltimaPiscada) / duracaoPiscada;
@@ -372,7 +355,6 @@ function calcularDeformacao(angulo, raioBase) {
         case "arregalado":
         case "meia_lua":
         default:
-            // Deformação orgânica mínima
             deformacao = noise(cos(angulo) * 2, sin(angulo) * 2, frameCount * 0.01) - 0.5;
             deformacao *= estado.deformacao * 3;
             break;
@@ -428,22 +410,6 @@ function desenharPupila(x, y, centroX, centroY, raioOlho) {
     
     return resultado;
 }
-
-function desenharOndasSonoras(distCentro, raioOlho) {
-    let numOndas = 3;
-    let espacamento = 3;
-    
-    for (let i = 0; i < numOndas; i++) {
-        let raioOnda = raioOlho + espacamento * (i + 1) + (frameCount * 0.15) % (espacamento * numOndas);
-        
-        if (abs(distCentro - raioOnda) < 0.8) {
-            return map(i, 0, numOndas, 150, 50);
-        }
-    }
-    
-    return false;
-}
-
 
 function interpolarExpressao(atual, alvo, t) {
     return {

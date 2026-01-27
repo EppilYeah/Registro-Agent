@@ -7,7 +7,6 @@ import eel
 class VisionHandler:
     def __init__(self):
         try:
-            print("[VISAO]")
             self.mp_face_detection = mp.solutions.face_detection
             self.mp_drawing = mp.solutions.drawing_utils
             self.face_detection = self.mp_face_detection.FaceDetection(
@@ -17,14 +16,11 @@ class VisionHandler:
             self.cap = None
             self.rodando = False
             self.thread = None
-            print("[VISAO] SUCESSO")
         except Exception as e:
-            print(f"[VISAO] Erro : {e}")
             self.face_detection = None
 
     def iniciar(self):
         if self.rodando or not self.face_detection:
-            print("[VISAO] já está rodando ou MediaPipe não inicializado")
             return
             
         self.rodando = True
@@ -32,7 +28,6 @@ class VisionHandler:
         self.cap = cv2.VideoCapture(0)
         
         if not self.cap.isOpened():
-            print("[VISAO]")
             self.rodando = False
             return
         
@@ -40,14 +35,11 @@ class VisionHandler:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         
-        print("[VISAO]")
         
         self.thread = threading.Thread(target=self._loop_visao, daemon=True)
         self.thread.start()
-        print("[VISAO]")
 
     def parar(self):
-        print("[VISAO] PARANDO")
         self.rodando = False
         
         if self.cap:
@@ -56,10 +48,8 @@ class VisionHandler:
         if self.thread:
             self.thread.join(timeout=2)
             
-        print("[VISAO] PARADA")
 
     def _loop_visao(self):
-        print("[VISAO] RODANDO")
         
         fps_counter = 0
         fps_start = time.time()
@@ -70,7 +60,6 @@ class VisionHandler:
                 success, image = self.cap.read()
                 
                 if not success:
-                    print("[VISAO] Falha ao capturar frame")
                     time.sleep(0.1)
                     continue
 
@@ -108,17 +97,14 @@ class VisionHandler:
                 fps_counter += 1
                 if time.time() - fps_start > 5.0:  
                     fps = fps_counter / (time.time() - fps_start)
-                    print(f"[VISAO] FPS: {fps:.1f} | Rosto: {'O' if encontrou_rosto else 'X'}")
                     fps_counter = 0
                     fps_start = time.time()
 
                 time.sleep(0.01) 
                 
             except Exception as e:
-                print(f"[VISAO] Erro no loop: {e}")
                 time.sleep(0.1)
         
-        print("[VISAO] Loop de visão finalizado")
 
 if __name__ == "__main__":
     print("=" * 50)
