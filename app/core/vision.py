@@ -7,7 +7,7 @@ import eel
 class VisionHandler:
     def __init__(self):
         try:
-            print("[VISAO] Inicializando MediaPipe...")
+            print("[VISAO]")
             self.mp_face_detection = mp.solutions.face_detection
             self.mp_drawing = mp.solutions.drawing_utils
             self.face_detection = self.mp_face_detection.FaceDetection(
@@ -17,14 +17,14 @@ class VisionHandler:
             self.cap = None
             self.rodando = False
             self.thread = None
-            print("[VISAO] MediaPipe inicializado com sucesso!")
+            print("[VISAO] SUCESSO")
         except Exception as e:
-            print(f"[VISAO] Erro ao inicializar MediaPipe: {e}")
+            print(f"[VISAO] Erro : {e}")
             self.face_detection = None
 
     def iniciar(self):
         if self.rodando or not self.face_detection:
-            print("[VISAO] Visão já está rodando ou MediaPipe não inicializado")
+            print("[VISAO] já está rodando ou MediaPipe não inicializado")
             return
             
         self.rodando = True
@@ -32,7 +32,7 @@ class VisionHandler:
         self.cap = cv2.VideoCapture(0)
         
         if not self.cap.isOpened():
-            print("[VISAO] Não foi possível abrir a câmera")
+            print("[VISAO]")
             self.rodando = False
             return
         
@@ -40,14 +40,14 @@ class VisionHandler:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         
-        print("[VISAO] Câmera aberta com sucesso")
+        print("[VISAO]")
         
         self.thread = threading.Thread(target=self._loop_visao, daemon=True)
         self.thread.start()
-        print("[VISAO] Thread de visão iniciada")
+        print("[VISAO]")
 
     def parar(self):
-        print("[VISAO] Parando visão...")
+        print("[VISAO] PARANDO")
         self.rodando = False
         
         if self.cap:
@@ -56,10 +56,10 @@ class VisionHandler:
         if self.thread:
             self.thread.join(timeout=2)
             
-        print("[VISAO] Visão parada")
+        print("[VISAO] PARADA")
 
     def _loop_visao(self):
-        print("[VISAO] Loop de visão rodando...")
+        print("[VISAO] RODANDO")
         
         fps_counter = 0
         fps_start = time.time()
@@ -108,7 +108,7 @@ class VisionHandler:
                 fps_counter += 1
                 if time.time() - fps_start > 5.0:  
                     fps = fps_counter / (time.time() - fps_start)
-                    print(f"[VISAO] FPS: {fps:.1f} | Rosto: {'✅' if encontrou_rosto else '❌'}")
+                    print(f"[VISAO] FPS: {fps:.1f} | Rosto: {'O' if encontrou_rosto else 'X'}")
                     fps_counter = 0
                     fps_start = time.time()
 
@@ -128,8 +128,6 @@ if __name__ == "__main__":
     vision = VisionHandler()
     
     if vision.face_detection:
-        print("\nIniciando captura de vídeo...")
-        print("Pressione Ctrl+C para parar\n")
         
         vision.iniciar()
         
@@ -141,4 +139,4 @@ if __name__ == "__main__":
             vision.parar()
             print("Finalizado!")
     else:
-        print("MediaPipe não inicializado corretamente")
+        print("MediaPipe não inicializado ")
