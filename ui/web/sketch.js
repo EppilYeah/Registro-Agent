@@ -61,12 +61,12 @@ const EXPRESSOES = {
     },
     "confuso": {
         r: 255, g: 150, b: 0,
-        tamanhoPupila: 0.35,
-        deformacao: 0.15,
+        tamanhoPupila: 0.38,
+        deformacao: 0.12,
         velocidadeMovimento: 0.02,
-        intensidadeRespiracao: 0.06,
+        intensidadeRespiracao: 0.05,
         comportamentoPupila: "espiral",
-        formatoOlho: "arregalado"
+        formatoOlho: "arregalado"  
     },
     "desconfiado": {
         r: 255, g: 255, b: 0,
@@ -325,6 +325,8 @@ function verificarFormatoOlho(distCentro, dy, raioComDeformacao) {
             return distCentro < raioComDeformacao && dy > -raioComDeformacao * 0.3;
         case "arregalado":
             return distCentro < raioComDeformacao * 1.2;
+        case "levemente_arregalado": 
+            return distCentro < raioComDeformacao * 1.08;
         case "erratico":
         case "distorcido_leve":
         case "circular":
@@ -332,7 +334,6 @@ function verificarFormatoOlho(distCentro, dy, raioComDeformacao) {
             return distCentro < raioComDeformacao;
     }
 }
-
 function calcularDeformacao(angulo, raioBase) {
     let deformacao = 0;
     
@@ -367,23 +368,35 @@ function desenharPupila(x, y, centroX, centroY, raioOlho) {
     let resultado = { ativo: false, alpha: 255 };
     
     if (expressaoAtual.comportamentoPupila === "espiral") {
-        // Pupila em espiral
         let dx = x - centroX;
         let dy = y - centroY;
         let dist = sqrt(dx * dx + dy * dy);
         let angulo = atan2(dy, dx);
         
-        let espiral = (dist * 0.5 + anguloEspiral) % (PI * 2);
-        let larguraEspiral = 1.2;
-        let anguloNormalizado = (angulo + PI) % (PI * 2);
-        let diferencaAngulo = abs(anguloNormalizado - espiral);
+        let raioPupilaMax = raioOlho * estado.tamanhoPupila;
         
-        if (diferencaAngulo < larguraEspiral || (PI * 2 - diferencaAngulo) < larguraEspiral) {
-            if (dist < raioOlho * estado.tamanhoPupila) {
+        if (dist < raioPupilaMax && dist > 0.5) {
+            let voltas = 2.5;
+            let anguloCalculado = (dist / raioPupilaMax) * voltas * TWO_PI;
+            anguloCalculado += anguloEspiral; 
+            
+            let anguloAtual = angulo < 0 ? angulo + TWO_PI : angulo;
+            let anguloAlvo = anguloCalculado % TWO_PI;
+            
+            let dif = abs(anguloAtual - anguloAlvo);
+            if (dif > PI) dif = TWO_PI - dif;
+            
+            if (dif < 0.5) {
                 resultado.ativo = true;
-                resultado.alpha = 255;
+                resultado.alpha = 240;
             }
         }
+        
+        if (dist < 1.5) {
+            resultado.ativo = true;
+            resultado.alpha = 255;
+        }
+        
     } else {
         let distPupila = dist(
             x, y,
