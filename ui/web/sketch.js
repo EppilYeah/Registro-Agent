@@ -13,9 +13,6 @@ let estado = {
 let alvo = { ...estado };
 
 let estaFalando = false;
-let piscando = false;
-let tempoUltimaPiscada = 0;
-let duracaoPiscada = 200;
 
 let posicaoPupila = { x: 0, y: 0 };
 let alvoOlhar = { x: 0, y: 0 };
@@ -108,12 +105,16 @@ const EXPRESSOES = {
 
 let expressaoAtual = EXPRESSOES["neutro"];
 let expressaoAlvo = EXPRESSOES["neutro"];
+let progressoTransicao = 1.0;
 
 eel.expose(jsAtualizarRosto);
-function jsAtualizarRosto(emocao, falando) {;
-    
+function jsAtualizarRosto(emocao, falando) {
     estaFalando = falando;
     expressaoAlvo = EXPRESSOES[emocao] || EXPRESSOES["neutro"];
+    
+    if (expressaoAlvo !== expressaoAtual) {
+        progressoTransicao = 0.0;
+    }
     
     alvo.r = expressaoAlvo.r;
     alvo.g = expressaoAlvo.g;
@@ -152,19 +153,14 @@ function draw() {
     estado.velocidadeMovimento = lerp(estado.velocidadeMovimento, alvo.velocidadeMovimento, suavidade);
     estado.intensidadeRespiracao = lerp(estado.intensidadeRespiracao, alvo.intensidadeRespiracao, suavidade);
     
-    expressaoAtual = interpolarExpressao(expressaoAtual, expressaoAlvo, suavidade);
+    if (progressoTransicao < 1.0) {
+        progressoTransicao += 0.015;
+        progressoTransicao = min(progressoTransicao, 1.0);
+    }
     
-    if (millis() - tempoUltimaPiscada > random(2500, 5000) && !piscando) {
-        piscando = true;
-        tempoUltimaPiscada = millis();
-    }
-    if (piscando && millis() - tempoUltimaPiscada > duracaoPiscada) {
-        piscando = false;
-    }
-
     atualizarPosicaoPupila();
     
-    if (expressaoAtual.comportamentoPupila === "espiral") {
+    if (obterComportamentoAtual() === "espiral") {
         anguloEspiral += 0.1;
     }
     
@@ -174,10 +170,32 @@ function draw() {
         pulsoLuz = lerp(pulsoLuz, 0, 0.1);
     }
     
-    // Desenhar o olho
     desenharOlho();
 }
 
+function obterComportamentoAtual() {
+    let t = easeInOutCubic(progressoTransicao);
+    
+    if (t < 0.5) {
+        return expressaoAtual.comportamentoPupila;
+    } else {
+        return expressaoAlvo.comportamentoPupila;
+    }
+}
+
+function obterFormatoAtual() {
+    let t = easeInOutCubic(progressoTransicao);
+    
+    if (t < 0.5) {
+        return expressaoAtual.formatoOlho;
+    } else {
+        return expressaoAlvo.formatoOlho;
+    }
+}
+
+function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
+}
 
 function atualizarPosicaoPupila() {
     if (rastreamentoCamera.ativo && millis() - rastreamentoCamera.ultimoUpdate < 2000) {
@@ -186,9 +204,10 @@ function atualizarPosicaoPupila() {
         return;
     }
 
-    switch (expressaoAtual.comportamentoPupila) {
+    let comportamento = obterComportamentoAtual();
+
+    switch (comportamento) {
         case "saltos_rapidos":
-            // Neutro
             if (millis() - tempoUltimoSalto > random(800, 1500)) {
                 alvoOlhar.x = random(-4, 4);
                 alvoOlhar.y = random(-4, 4);
@@ -199,19 +218,16 @@ function atualizarPosicaoPupila() {
             break;
         
         case "centralizado":
-            // Fica no centro
             posicaoPupila.x = lerp(posicaoPupila.x, 0, 0.1);
             posicaoPupila.y = lerp(posicaoPupila.y, 0, 0.1);
             break;
         
         case "espiral":
-            // Confuso
             posicaoPupila.x = 0;
             posicaoPupila.y = 0;
             break;
         
         case "observando_rapido":
-            // Desconfiado
             if (millis() - tempoUltimoSalto > random(150, 400)) {
                 alvoOlhar.x = random(-5, 5);
                 alvoOlhar.y = random(-5, 5);
@@ -222,7 +238,6 @@ function atualizarPosicaoPupila() {
             break;
         
         case "cantos_lentos":
-            // Arrogante
             alvoOlhar.x = sin(frameCount * 0.02) * 3;
             alvoOlhar.y = cos(frameCount * 0.015) * 3;
             posicaoPupila.x = lerp(posicaoPupila.x, alvoOlhar.x, 0.03);
@@ -230,7 +245,6 @@ function atualizarPosicaoPupila() {
             break;
         
         case "centro_com_saltos":
-            // Feliz
             if (millis() - tempoUltimoSalto > random(1000, 2000)) {
                 alvoOlhar.x = random(-5, 5);
                 alvoOlhar.y = random(-5, 5);
@@ -254,7 +268,6 @@ function desenharOlho() {
     let centroX = colunas / 2;
     let centroY = linhas / 2;
     
-    // Respiração
     let respiracao = sin(frameCount * 0.03) * estado.intensidadeRespiracao;
     let raioOlho = 12 + respiracao;
     
@@ -270,10 +283,8 @@ function desenharOlho() {
             
             let raioComDeformacao = calcularDeformacao(angulo, raioOlho);
             
-            // Verificar formato do olho
             let dentroDoOlho = verificarFormatoOlho(distCentro, dy, raioComDeformacao);
             
-            // Borda do olho 
             if (dentroDoOlho && distCentro > raioComDeformacao - 1.5) {
                 pixel = true;
                 if (estaFalando) {
@@ -281,27 +292,16 @@ function desenharOlho() {
                 }
             }
             
-            // Interior do olho
             if (dentroDoOlho && distCentro < raioComDeformacao - 1.5) {
                 pixel = true;
                 alpha = 100;
             }
             
-            // Pupila
-            if (!piscando && dentroDoOlho) {
+            if (dentroDoOlho) {
                 let pixelPupila = desenharPupila(x, y, centroX, centroY, raioOlho);
                 if (pixelPupila.ativo) {
                     pixel = true;
                     alpha = pixelPupila.alpha;
-                }
-            }
-
-            // Piscada
-            if (piscando) {
-                let progressoPiscada = (millis() - tempoUltimaPiscada) / duracaoPiscada;
-                let fechamento = sin(progressoPiscada * PI) * raioOlho * 0.8;
-                if (abs(dy) > fechamento) {
-                    pixel = false;
                 }
             }
 
@@ -320,7 +320,9 @@ function desenharOlho() {
 }
 
 function verificarFormatoOlho(distCentro, dy, raioComDeformacao) {
-    switch (expressaoAtual.formatoOlho) {
+    let formato = obterFormatoAtual();
+    
+    switch (formato) {
         case "meia_lua":
             return distCentro < raioComDeformacao && dy > -raioComDeformacao * 0.3;
         case "arregalado":
@@ -334,12 +336,13 @@ function verificarFormatoOlho(distCentro, dy, raioComDeformacao) {
             return distCentro < raioComDeformacao;
     }
 }
+
 function calcularDeformacao(angulo, raioBase) {
     let deformacao = 0;
+    let formato = obterFormatoAtual();
     
-    switch (expressaoAtual.formatoOlho) {
+    switch (formato) {
         case "erratico":
-            // Irritado
             deformacao = noise(
                 cos(angulo) * 2 + frameCount * estado.velocidadeMovimento,
                 sin(angulo) * 2 + frameCount * estado.velocidadeMovimento
@@ -348,7 +351,6 @@ function calcularDeformacao(angulo, raioBase) {
             break;
         
         case "distorcido_leve":
-            // Arrogante
             deformacao = sin(angulo * 3 + frameCount * 0.02) * estado.deformacao * 2;
             break;
         
@@ -366,8 +368,9 @@ function calcularDeformacao(angulo, raioBase) {
 
 function desenharPupila(x, y, centroX, centroY, raioOlho) {
     let resultado = { ativo: false, alpha: 255 };
+    let comportamento = obterComportamentoAtual();
     
-    if (expressaoAtual.comportamentoPupila === "espiral") {
+    if (comportamento === "espiral") {
         let dx = x - centroX;
         let dy = y - centroY;
         let dist = sqrt(dx * dx + dy * dy);
@@ -422,14 +425,6 @@ function desenharPupila(x, y, centroX, centroY, raioOlho) {
     }
     
     return resultado;
-}
-
-function interpolarExpressao(atual, alvo, t) {
-    return {
-        comportamentoPupila: alvo.comportamentoPupila,
-        formatoOlho: alvo.formatoOlho,
-        ondasSonoras: alvo.ondasSonoras || false
-    };
 }
 
 function windowResized() {
