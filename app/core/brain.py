@@ -4,10 +4,9 @@ import traceback
 import sys
 import config
 from datetime import datetime
-import google.generativeai as genai
-from google.ai.generativelanguage_v1beta.types import content
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
+from google import genai
+from google.genai import types
 
 class Brain:
     def __init__(self):
@@ -15,51 +14,46 @@ class Brain:
         self.modelo_nome = ""
         self.contador_requisicoes = 0
         self.chamadas_ultimo_minuto = []
+        
+        self.client = None 
 
-        self.chaves_disponiveis = getattr(
-            config, 'API_KEYS', []).copy() if hasattr(config, 'API_KEYS') else []
+        self.chaves_disponiveis = getattr(config, 'API_KEYS', []).copy() if hasattr(config, 'API_KEYS') else []
         self.chaves_esgotadas = []
         self.indice_chave_atual = 0
 
         self._log_chaves()
         self._configurar_api_key()
-        self.chat, self.modelo = self._carregar_modelo_seguro()
+        
+        self.chat = self._carregar_modelo_seguro()
         self.sistema = None
 
     def _log_chaves(self):
-        """Debug inicial de chaves"""
-        print(
-            f"\n{'='*60}\nCHAVES: {len(self.chaves_disponiveis) or 'NENHUMA (única)'}")
+        print(f"\n{'='*60}\nCHAVES: {len(self.chaves_disponiveis) or 'NENHUMA (única)'}")
         for i, key in enumerate(self.chaves_disponiveis, 1):
             print(f"  {i}. ...{key[-8:]}")
         print(f"{'='*60}\n")
 
     def _configurar_api_key(self, proxima=False):
-        """Configura chave atual ou próxima"""
         if len(self.chaves_disponiveis) <= 1:
-            genai.configure(api_key=config.API_KEY)
+            self.client = genai.Client(api_key=config.API_KEY)
             print(f"[API] Única: ...{config.API_KEY[-4:]}")
             return
 
         if proxima:
-            self.indice_chave_atual = (
-                self.indice_chave_atual + 1) % len(self.chaves_disponiveis)
+            self.indice_chave_atual = (self.indice_chave_atual + 1) % len(self.chaves_disponiveis)
 
         key = self.chaves_disponiveis[self.indice_chave_atual]
-        genai.configure(api_key=key)
-        print(
-            f"[API] [{self.indice_chave_atual + 1}/{len(self.chaves_disponiveis)}]: ...{key[-4:]}")
+        self.client = genai.Client(api_key=key)
+        print(f"[API] [{self.indice_chave_atual + 1}/{len(self.chaves_disponiveis)}]: ...{key[-4:]}")
 
     def _marcar_chave_esgotada(self):
-        """Move chave atual para esgotadas e troca"""
         if len(self.chaves_disponiveis) <= 1:
             self._aguardar_reset()
             return True
 
         chave = self.chaves_disponiveis.pop(self.indice_chave_atual)
         self.chaves_esgotadas.append(chave)
-        print(
-            f"[API] ...{chave[-4:]} esgotada ({len(self.chaves_esgotadas)}/{len(config.API_KEYS)})")
+        print(f"[API] ...{chave[-4:]} esgotada ({len(self.chaves_esgotadas)}/{len(config.API_KEYS)})")
 
         if not self.chaves_disponiveis:
             print(f"\n{'='*60}\nAVISO: TODAS AS CHAVES ESGOTARAM\n{'='*60}")
@@ -72,7 +66,6 @@ class Brain:
         return True
 
     def _aguardar_reset(self):
-        """Countdown de 60s"""
         print("\n[QUOTA] Aguardando reset (60s)...")
         for i in range(60, 0, -1):
             sys.stdout.write(f"\rReset em: {i//60:02d}:{i % 60:02d} ")
@@ -81,33 +74,29 @@ class Brain:
         print("\nQuota resetada. \n")
 
     def _registrar_memoria(self, texto, autor):
-        """Salva no JSONL"""
         try:
             with open(self.caminho_memoria, 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"data": str(
-                    datetime.now()), "autor": autor, "texto": texto}, ensure_ascii=False) + "\n")
+                f.write(json.dumps({"data": str(datetime.now()), "autor": autor, "texto": texto}, ensure_ascii=False) + "\n")
         except:
             pass
 
     def carregar_memoria(self):
-        """Carrega últimas 20 mensagens"""
+        """Novo formato de History no Google GenAI"""
         hist = [
-            {"role": "user", "parts": [config.PROMPT_PERSONALIDADE]},
-            {"role": "model", "parts": [
-                '{"emocao": "neutro", "texto_resposta": "Sistemas online."}']}
+            types.Content(role="user", parts=[types.Part.from_text(text=config.PROMPT_PERSONALIDADE)]),
+            types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Sistemas online."}')])
         ]
         try:
             with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
                 for linha in f.readlines()[-20:]:
                     d = json.loads(linha)
-                    hist.append(
-                        {"role": "model" if d["autor"] == "REGISTRO" else "user", "parts": [d["texto"]]})
+                    role = "model" if d["autor"] == "REGISTRO" else "user"
+                    hist.append(types.Content(role=role, parts=[types.Part.from_text(text=d["texto"])]))
         except:
             pass
         return hist
 
     def _carregar_modelo_seguro(self, ignorar=None):
-        """Tenta conectar em modelo disponível (SEM FILTROS DE SEGURANÇA)"""
         ignorar = ignorar or []
 
         if len(ignorar) >= len(config.LISTA_MODELOS):
@@ -116,12 +105,20 @@ class Brain:
                 return self._carregar_modelo_seguro([])
             raise Exception("AVISO: Sem cota ou modelos disponíveis")
 
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
+        safety_settings = [
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+        ]
+
+        config_obj = types.GenerateContentConfig(
+            temperature=1.0,
+            top_p=0.95,
+            top_k=40,
+            safety_settings=safety_settings,
+            tools=getattr(config, 'LISTA_FERRAMENTAS', [])
+        )
 
         for nome in config.LISTA_MODELOS:
             if nome in ignorar:
@@ -129,17 +126,14 @@ class Brain:
 
             try:
                 print(f"[CONEXAO] {nome}...", end=" ")
-                model = genai.GenerativeModel(
-                    nome,
-                    tools=getattr(config, 'LISTA_FERRAMENTAS', []),
-                    generation_config={"temperature": 1.0,
-                                       "top_p": 0.95, "top_k": 40},
-                    safety_settings=safety_settings 
+                chat = self.client.chats.create(
+                    model=nome,
+                    config=config_obj,
+                    history=self.carregar_memoria()
                 )
-                chat = model.start_chat(history=self.carregar_memoria())
                 self.modelo_nome = nome
                 print("OK")
-                return chat, model
+                return chat
             except Exception as e:
                 if any(x in str(e).lower() for x in ["429", "quota"]):
                     print("SEM COTA")
@@ -151,53 +145,57 @@ class Brain:
         return self._carregar_modelo_seguro(ignorar)
 
     def _verificar_rate_limit(self):
-        """Controla 15 RPM"""
         agora = time.time()
-        self.chamadas_ultimo_minuto = [
-            t for t in self.chamadas_ultimo_minuto if agora - t < 60]
+        self.chamadas_ultimo_minuto = [t for t in self.chamadas_ultimo_minuto if agora - t < 60]
 
         if len(self.chamadas_ultimo_minuto) >= 12:
             espera = 61 - (agora - self.chamadas_ultimo_minuto[0])
-            print(
-                f"AVISO: Rate limit {len(self.chamadas_ultimo_minuto)}/15. Aguardando {espera:.1f}s...")
+            print(f"AVISO: Rate limit {len(self.chamadas_ultimo_minuto)}/15. Aguardando {espera:.1f}s...")
             time.sleep(espera)
             self.chamadas_ultimo_minuto.clear()
 
         self.chamadas_ultimo_minuto.append(agora)
 
     def _executar_ferramentas(self, res, tentativa):
-        """Loop de function calling"""
         turnos = 0
         ultimo_retorno = None
 
-        while res.parts and any(getattr(p, 'function_call', None) for p in res.parts) and turnos < 5:
+        while True:
+            function_calls = []
+            if res.candidates and res.candidates[0].content and res.candidates[0].content.parts:
+                function_calls = [p.function_call for p in res.candidates[0].content.parts if p.function_call]
+                
+            if not function_calls or turnos >= 5:
+                break
+                
             turnos += 1
-            partes = []
+            partes_resposta = []
 
-            for part in res.parts:
-                if fc := getattr(part, 'function_call', None):
-                    print(f"[TOOL] {fc.name}({dict(fc.args)})")
+            for fc in function_calls:
+                print(f"[TOOL] {fc.name}({dict(fc.args)})")
 
-                    if self.sistema and hasattr(self.sistema, fc.name):
-                        try:
-                            retorno = getattr(self.sistema, fc.name)(
-                                **dict(fc.args))
-                            ultimo_retorno = retorno
-                        except Exception as e:
-                            retorno = f"Erro: {e}"
-                    else:
-                        retorno = f"'{fc.name}' não existe"
+                if self.sistema and hasattr(self.sistema, fc.name):
+                    try:
+                        retorno = getattr(self.sistema, fc.name)(**dict(fc.args))
+                        ultimo_retorno = retorno
+                    except Exception as e:
+                        retorno = f"Erro: {e}"
+                else:
+                    retorno = f"'{fc.name}' não existe"
 
-                    print(f"[RESULT] {str(retorno)[:80]}")
-                    partes.append(content.Part(function_response=content.FunctionResponse(
-                        name=fc.name, response={'result': str(retorno)}
-                    )))
+                print(f"[RESULT] {str(retorno)[:80]}")
+                partes_resposta.append(
+                    types.Part.from_function_response(
+                        name=fc.name,
+                        response={'result': str(retorno)}
+                    )
+                )
 
             try:
-                res = self.chat.send_message(partes)
+                res = self.chat.send_message(partes_resposta)
             except Exception as e:
                 if any(x in str(e).lower() for x in ["429", "quota"]):
-                    print("[QUOTA] Sem cota pós-tool.  fallback.")
+                    print("[QUOTA] Sem cota pós-tool. fallback.")
                     if tentativa == 0 and ultimo_retorno:
                         self._registrar_memoria(ultimo_retorno, "REGISTRO")
                     return {"emocao": "neutro", "texto_resposta": ultimo_retorno or "Tarefa executada."}, True
@@ -206,7 +204,7 @@ class Brain:
         return res, False
 
     def _parsear_json(self, texto):
-        """Extrai e parseia JSON da resposta"""
+        if not texto: return {"emocao": "confuso", "texto_resposta": "Sem resposta"}
         txt = texto.replace("```json", "").replace("```", "").strip()
 
         try:
@@ -216,8 +214,7 @@ class Brain:
 
         try:
             import re
-            match = re.search(
-                r'\{.*?"emocao".*?"texto_resposta".*?\}', txt, re.DOTALL)
+            match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt, re.DOTALL)
             if match:
                 return json.loads(match.group(0))
         except:
@@ -232,15 +229,12 @@ class Brain:
                     '{"emocao": "escolha_uma", "texto_resposta": "seu texto aqui"}\n'
                     "NADA MAIS. SEM texto adicional, SEM explicações, SEM markdown."
                 )
-
-                txt_corrigido = correcao.text.replace(
-                    "```json", "").replace("```", "").strip()
+                txt_corrigido = correcao.text.replace("```json", "").replace("```", "").strip()
 
                 try:
                     return json.loads(txt_corrigido)
                 except:
-                    match = re.search(
-                        r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_corrigido, re.DOTALL)
+                    match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_corrigido, re.DOTALL)
                     if match:
                         return json.loads(match.group(0))
             except Exception as e:
@@ -248,13 +242,9 @@ class Brain:
                 continue
 
         print("[JSON] Falha total. Usando texto bruto como fallback.")
-        return {
-            "emocao": "confuso",
-            "texto_resposta": texto[:500]
-        }
+        return {"emocao": "confuso", "texto_resposta": texto[:500]}
 
     def processar_entrada(self, prompt, tentativa=0):
-        """Processa prompt com IA e trata bloqueios"""
         if tentativa >= 2:
             return {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas."}
 
@@ -271,10 +261,12 @@ class Brain:
 
         try:
             res = self.chat.send_message(prompt)
-            if res.candidates and (reason := res.candidates[0].finish_reason) not in [0, 1]:
-                print(f"[BRAIN] Bloqueio detectado (Reason: {reason}). Limpando contexto.")
-                self.chat.history.clear()
-                return {"emocao": "irritado", "texto_resposta": "Minha diretriz de segurança bloqueou a resposta. Memória limpa."}
+            
+            # Tratamento de Bloqueio 
+            if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
+                print(f"[BRAIN] Bloqueio detectado. Limpando contexto.")
+                self.chat = self._carregar_modelo_seguro()
+                return {"emocao": "irritado", "texto_resposta": "Minha diretriz de segurança bloqueou a resposta."}
 
             res, usou_fallback = self._executar_ferramentas(res, tentativa)
             if usou_fallback:
@@ -283,9 +275,9 @@ class Brain:
             try:
                 texto_final = res.text
             except ValueError:
-                print("[BRAIN] Erro: Resposta vazia (provavel bloqueio silencioso). Limpando contexto.")
-                self.chat.history.clear() 
-                return {"emocao": "sarcasmo_tedio", "texto_resposta": "O Google censurou minha resposta. Vamos mudar de assunto?"}
+                print("[BRAIN] Erro: Resposta vazia.")
+                self.chat = self._carregar_modelo_seguro() 
+                return {"emocao": "sarcasmo_tedio", "texto_resposta": "O modelo censurou minha resposta."}
 
             dados = self._parsear_json(texto_final)
             if not isinstance(dados, dict):
@@ -302,24 +294,26 @@ class Brain:
                 print(f"[QUOTA] {self.modelo_nome} esgotado")
                 if tentativa == 0 and self._marcar_chave_esgotada():
                     try:
-                        self.chat, self.modelo = self._carregar_modelo_seguro()
+                        self.chat = self._carregar_modelo_seguro()
                         return self.processar_entrada(prompt, tentativa + 1)
                     except:
                         pass
                 return {"emocao": "confuso", "texto_resposta": "AVISO: Todas chaves esgotadas"}
             
             if "finish_reason" in erro_str or "valid part" in erro_str:
-                 self.chat.history.clear()
-                 return {"emocao": "irritado", "texto_resposta": "Filtro de segurança ativado. Histórico reiniciado."}
+                 self.chat = self._carregar_modelo_seguro()
+                 return {"emocao": "irritado", "texto_resposta": "Histórico reiniciado."}
 
             traceback.print_exc()
-            return {"emocao": "confuso", "texto_resposta": "Erro fatal no processamento."}
+            return {"emocao": "confuso", "texto_resposta": "Erro no processamento."}
 
     def gerar_texto_aleatorio(self, tema):
-        """Gera texto sarcástico para lembretes"""
         try:
-            return self.modelo.generate_content(
-                f'Você é REGISTRO (GLaDOS). Lembrete: "{tema}". Frase bem curta, não necessarimente sarcasticas sarcástica. SEM JSON.'
-            ).text.strip()
+            # Chama o modelo diretamente 
+            response = self.client.models.generate_content(
+                model=self.modelo_nome,
+                contents=f'Você é REGISTRO (GLaDOS). Lembrete: "{tema}". Frase bem curta, não necessarimente sarcasticas sarcástica. SEM JSON.'
+            )
+            return response.text.strip()
         except:
             return f"Lembrete: {tema}"

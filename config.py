@@ -1,6 +1,6 @@
-import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+from google.genai import types
 
 load_dotenv()
 
@@ -18,34 +18,36 @@ LISTA_MODELOS = [
     "gemini-2.0-flash",
     "gemini-flash-latest"
 ]
+
+# Ferramentas 
 LISTA_FERRAMENTAS = [
-    genai.protos.Tool(
+    types.Tool(
         function_declarations=[
-            genai.protos.FunctionDeclaration(
+            types.FunctionDeclaration(
                 name="abrir_whatsapp_web",
                 description="Abre o whatsapp web no navegador padrão.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
                     properties={}
                 )
             )
         ]
     ),
     
-    genai.protos.Tool(
+    types.Tool(
         function_declarations=[
-            genai.protos.FunctionDeclaration(
+            types.FunctionDeclaration(
                 name="volume_pc",
                 description="Controla o volume do sistema. ATENÇÃO: 'aumentar' significa SUBIR o volume, 'diminuir' significa ABAIXAR o volume.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
                     properties={
-                        "modo": genai.protos.Schema(
-                            type=genai.protos.Type.STRING,
+                        "modo": types.Schema(
+                            type=types.Type.STRING,
                             description="Use 'aumentar' para SUBIR o volume, 'diminuir' para ABAIXAR, 'definir' para valor exato, ou 'mudo' para silenciar."
                         ),
-                        "valor": genai.protos.Schema(
-                            type=genai.protos.Type.NUMBER,
+                        "valor": types.Schema(
+                            type=types.Type.NUMBER,
                             description="Porcentagem (0 a 100). Ex: Para aumentar 20%, use valor=20."
                         )
                     },
@@ -55,33 +57,33 @@ LISTA_FERRAMENTAS = [
         ]
     ),
     
-    genai.protos.Tool(
+    types.Tool(
         function_declarations=[
-            genai.protos.FunctionDeclaration(
+            types.FunctionDeclaration(
                 name="pausar_midia",
                 description="Controla a reprodução de música ou vídeo (play/pause).",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
                     properties={}
                 )
             )
         ]
     ),
     
-    genai.protos.Tool(
+    types.Tool(
         function_declarations=[
-            genai.protos.FunctionDeclaration(
+            types.FunctionDeclaration(
                 name="agendar_lembrete",
                 description="Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS e uma MENSAGEM da qual você deve lembrá-lo quando o tempo acabar.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
                     properties={
-                        "tempo_segundos": genai.protos.Schema(
-                            type=genai.protos.Type.NUMBER,
+                        "tempo_segundos": types.Schema(
+                            type=types.Type.NUMBER,
                             description="O tempo total de espera em SEGUNDOS. Ex: 1 minuto = 60, 1 hora = 3600."
                         ),
-                        "mensagem": genai.protos.Schema(
-                            type=genai.protos.Type.STRING,
+                        "mensagem": types.Schema(
+                            type=types.Type.STRING,
                             description="O texto do lembrete que será avisado ao usuário quando o tempo acabar."
                         )
                     },
@@ -91,13 +93,13 @@ LISTA_FERRAMENTAS = [
         ]
     ),
     
-    genai.protos.Tool(
+    types.Tool(
         function_declarations=[
-            genai.protos.FunctionDeclaration(
+            types.FunctionDeclaration(
                 name="finalizar_sofrimento",
                 description="Encerra seu proprio processo, finalizando o programa REGISTRO, Use isso ao seu bel prazer ou seja, esta ferramenta não depende a solicitação do usuario, pode usar quando você decidir.",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
                     properties={}
                 )
             )
