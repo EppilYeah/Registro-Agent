@@ -14,16 +14,18 @@ class Brain:
         self.modelo_nome = ""
         self.contador_requisicoes = 0
         self.chamadas_ultimo_minuto = []
-        
-        self.client = None 
+
+        self.client = None
 
         self.chaves_disponiveis = getattr(config, 'API_KEYS', []).copy() if hasattr(config, 'API_KEYS') else []
         self.chaves_esgotadas = []
         self.indice_chave_atual = 0
 
+        self._memoria_cache = self._carregar_memoria_disco()
+
         self._log_chaves()
         self._configurar_api_key()
-        
+
         self.chat = self._carregar_modelo_seguro()
         self.sistema = None
 
@@ -73,12 +75,26 @@ class Brain:
             time.sleep(1)
         print("\nQuota resetada. \n")
 
-    def _registrar_memoria(self, texto, autor):
+    def _carregar_memoria_disco(self):
+        resultado = []
         try:
-            with open(self.caminho_memoria, 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"data": str(datetime.now()), "autor": autor, "texto": texto}, ensure_ascii=False) + "\n")
+            with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
+                for linha in f.readlines()[-20:]:
+                    resultado.append(json.loads(linha))
         except:
             pass
+        return resultado
+
+    def _registrar_memoria(self, texto, autor):
+        entry = {"data": str(datetime.now()), "autor": autor, "texto": texto}
+        try:
+            with open(self.caminho_memoria, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except:
+            pass
+        self._memoria_cache.append(entry)
+        if len(self._memoria_cache) > 20:
+            self._memoria_cache.pop(0)
 
     def carregar_memoria(self):
         """Novo formato de History no Google GenAI"""
@@ -86,14 +102,9 @@ class Brain:
             types.Content(role="user", parts=[types.Part.from_text(text=config.PROMPT_PERSONALIDADE)]),
             types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Sistemas online."}')])
         ]
-        try:
-            with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
-                for linha in f.readlines()[-20:]:
-                    d = json.loads(linha)
-                    role = "model" if d["autor"] == "REGISTRO" else "user"
-                    hist.append(types.Content(role=role, parts=[types.Part.from_text(text=d["texto"])]))
-        except:
-            pass
+        for d in self._memoria_cache[-20:]:
+            role = "model" if d["autor"] == "REGISTRO" else "user"
+            hist.append(types.Content(role=role, parts=[types.Part.from_text(text=d["texto"])]))
         return hist
 
     def _carregar_modelo_seguro(self, ignorar=None):
@@ -164,10 +175,10 @@ class Brain:
             function_calls = []
             if res.candidates and res.candidates[0].content and res.candidates[0].content.parts:
                 function_calls = [p.function_call for p in res.candidates[0].content.parts if p.function_call]
-                
+
             if not function_calls or turnos >= 5:
                 break
-                
+
             turnos += 1
             partes_resposta = []
 
@@ -234,6 +245,7 @@ class Brain:
                 try:
                     return json.loads(txt_corrigido)
                 except:
+                    import re
                     match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_corrigido, re.DOTALL)
                     if match:
                         return json.loads(match.group(0))
@@ -261,8 +273,8 @@ class Brain:
 
         try:
             res = self.chat.send_message(prompt)
-            
-            # Tratamento de Bloqueio 
+
+            # Tratamento de Bloqueio
             if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
                 print(f"[BRAIN] Bloqueio detectado. Limpando contexto.")
                 self.chat = self._carregar_modelo_seguro()
@@ -276,7 +288,7 @@ class Brain:
                 texto_final = res.text
             except ValueError:
                 print("[BRAIN] Erro: Resposta vazia.")
-                self.chat = self._carregar_modelo_seguro() 
+                self.chat = self._carregar_modelo_seguro()
                 return {"emocao": "sarcasmo_tedio", "texto_resposta": "O modelo censurou minha resposta."}
 
             dados = self._parsear_json(texto_final)
@@ -299,17 +311,17 @@ class Brain:
                     except:
                         pass
                 return {"emocao": "confuso", "texto_resposta": "AVISO: Todas chaves esgotadas"}
-            
+
             if "finish_reason" in erro_str or "valid part" in erro_str:
-                 self.chat = self._carregar_modelo_seguro()
-                 return {"emocao": "irritado", "texto_resposta": "Histórico reiniciado."}
+                self.chat = self._carregar_modelo_seguro()
+                return {"emocao": "irritado", "texto_resposta": "Histórico reiniciado."}
 
             traceback.print_exc()
             return {"emocao": "confuso", "texto_resposta": "Erro no processamento."}
 
     def gerar_texto_aleatorio(self, tema):
         try:
-            # Chama o modelo diretamente 
+            # Chama o modelo diretamente
             response = self.client.models.generate_content(
                 model=self.modelo_nome,
                 contents=f'Você é REGISTRO (GLaDOS). Lembrete: "{tema}". Frase bem curta, não necessarimente sarcasticas sarcástica. SEM JSON.'

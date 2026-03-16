@@ -139,6 +139,9 @@ function setup() {
     tamanhoPixel = min(width, height) / colunas;
     
     console.log("[UI] Canvas inicializado");
+    setTimeout(function() {
+        try { eel.ui_pronta(); } catch(e) { console.warn("[UI] eel.ui_pronta falhou:", e); }
+    }, 500);
 }
 
 function draw() {
