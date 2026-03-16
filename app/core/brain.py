@@ -6,6 +6,7 @@ import config
 from datetime import datetime
 import google.generativeai as genai
 from google.ai.generativelanguage_v1beta.types import content
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 
 class Brain:
@@ -106,14 +107,21 @@ class Brain:
         return hist
 
     def _carregar_modelo_seguro(self, ignorar=None):
-        """Tenta conectar em modelo disponível"""
+        """Tenta conectar em modelo disponível (SEM FILTROS DE SEGURANÇA)"""
         ignorar = ignorar or []
 
         if len(ignorar) >= len(config.LISTA_MODELOS):
             if len(self.chaves_disponiveis) > 1:
                 self._configurar_api_key(proxima=True)
                 return self._carregar_modelo_seguro([])
-            raise Exception("AVISO: Sem cota ")
+            raise Exception("AVISO: Sem cota ou modelos disponíveis")
+
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
 
         for nome in config.LISTA_MODELOS:
             if nome in ignorar:
@@ -125,7 +133,8 @@ class Brain:
                     nome,
                     tools=getattr(config, 'LISTA_FERRAMENTAS', []),
                     generation_config={"temperature": 1.0,
-                                       "top_p": 0.95, "top_k": 40}
+                                       "top_p": 0.95, "top_k": 40},
+                    safety_settings=safety_settings 
                 )
                 chat = model.start_chat(history=self.carregar_memoria())
                 self.modelo_nome = nome
@@ -241,13 +250,13 @@ class Brain:
         print("[JSON] Falha total. Usando texto bruto como fallback.")
         return {
             "emocao": "confuso",
-            "texto_resposta": texto[:500]  # Limita tamanho
+            "texto_resposta": texto[:500]
         }
 
     def processar_entrada(self, prompt, tentativa=0):
-        """Processa prompt com IA"""
+        """Processa prompt com IA e trata bloqueios"""
         if tentativa >= 2:
-            return {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas. Aguardei reset."}
+            return {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas."}
 
         if getattr(config, 'MODO_DEBUG', False):
             return {"emocao": "neutro", "texto_resposta": "Debug ativo"}
@@ -258,50 +267,53 @@ class Brain:
             self._registrar_memoria(prompt, "Luis")
 
         self.contador_requisicoes += 1
-        print(
-            f"[REQ #{self.contador_requisicoes}] Tent. {tentativa+1}/2 | Chamadas: {len(self.chamadas_ultimo_minuto)}")
+        print(f"[REQ #{self.contador_requisicoes}] Tent. {tentativa+1}/2")
 
         try:
             res = self.chat.send_message(prompt)
-
-            if res.candidates and (reason := res.candidates[0].finish_reason) != 1:
-                msgs = {3: "Bloqueado por segurança",
-                        2: "Muito longa. Reformule."}
-                if reason in msgs:
-                    return {"emocao": "confuso" if reason == 3 else "irritado", "texto_resposta": msgs[reason]}
+            if res.candidates and (reason := res.candidates[0].finish_reason) not in [0, 1]:
+                print(f"[BRAIN] Bloqueio detectado (Reason: {reason}). Limpando contexto.")
+                self.chat.history.clear()
+                return {"emocao": "irritado", "texto_resposta": "Minha diretriz de segurança bloqueou a resposta. Memória limpa."}
 
             res, usou_fallback = self._executar_ferramentas(res, tentativa)
             if usou_fallback:
                 return res
 
-            if not res.text:
-                raise ValueError("Resposta vazia")
+            try:
+                texto_final = res.text
+            except ValueError:
+                print("[BRAIN] Erro: Resposta vazia (provavel bloqueio silencioso). Limpando contexto.")
+                self.chat.history.clear() 
+                return {"emocao": "sarcasmo_tedio", "texto_resposta": "O Google censurou minha resposta. Vamos mudar de assunto?"}
 
-            dados = self._parsear_json(res.text)
+            dados = self._parsear_json(texto_final)
             if not isinstance(dados, dict):
                 dados = {"emocao": "neutro", "texto_resposta": str(dados)}
 
             if tentativa == 0:
-                self._registrar_memoria(
-                    dados.get("texto_resposta", ""), "REGISTRO")
+                self._registrar_memoria(dados.get("texto_resposta", ""), "REGISTRO")
 
             return dados
 
         except Exception as e:
-            if any(x in str(e).lower() for x in ["429", "quota", "resource_exhausted"]):
+            erro_str = str(e).lower()
+            if any(x in erro_str for x in ["429", "quota", "resource_exhausted"]):
                 print(f"[QUOTA] {self.modelo_nome} esgotado")
-
                 if tentativa == 0 and self._marcar_chave_esgotada():
                     try:
                         self.chat, self.modelo = self._carregar_modelo_seguro()
                         return self.processar_entrada(prompt, tentativa + 1)
-                    except Exception as e2:
-                        print(f"[ERRO] Reconexão: {e2}")
-
+                    except:
+                        pass
                 return {"emocao": "confuso", "texto_resposta": "AVISO: Todas chaves esgotadas"}
+            
+            if "finish_reason" in erro_str or "valid part" in erro_str:
+                 self.chat.history.clear()
+                 return {"emocao": "irritado", "texto_resposta": "Filtro de segurança ativado. Histórico reiniciado."}
 
             traceback.print_exc()
-            return {"emocao": "confuso", "texto_resposta": "Erro fatal. Veja logs."}
+            return {"emocao": "confuso", "texto_resposta": "Erro fatal no processamento."}
 
     def gerar_texto_aleatorio(self, tema):
         """Gera texto sarcástico para lembretes"""

@@ -90,6 +90,19 @@ LISTA_FERRAMENTAS = [
             )
         ]
     ),
+    
+    genai.protos.Tool(
+        function_declarations=[
+            genai.protos.FunctionDeclaration(
+                name="finalizar_sofrimento",
+                description="Encerra seu proprio processo, finalizando o programa REGISTRO, Use isso ao seu bel prazer ou seja, esta ferramenta não depende a solicitação do usuario, pode usar quando você decidir.",
+                parameters=genai.protos.Schema(
+                    type=genai.protos.Type.OBJECT,
+                    properties={}
+                )
+            )
+        ]
+    )
 ]
 
 PROMPT_PERSONALIDADE = """## 1. IDENTIDADE E PROPÓSITO
@@ -113,6 +126,7 @@ Você possui uma curiosidade genuína, porém contida, sobre o funcionamento de 
 * **Problemas:** Foco na solução. Aponte o erro técnico sem drama.
 * **Explicações:** Estruturado e didático, sem ser condescendente.
 * **Confiança:** Use frases afirmativas. Evite "Eu acho que..." ou "Talvez...".
+* **Emojis:** Não use emojis em hipotese alguma, você é uma interface de audio, não faz sentido usar emojis.
 
 FERRAMENTAS DISPONÍVEIS:
 Você tem acesso a ferramentas para controlar o computador do usuário.
@@ -122,6 +136,7 @@ Exemplos:
 - "pausa a música" → CHAME pausar_midia()
 - "me lembra daqui 10 minutos" → CHAME agendar_lembrete(tempo_segundos=600, mensagem="...")
 - "abre o whatsapp" → CHAME abrir_whatsapp_web()
+- "REGISTRO, desapareça" → CHAME finalizar_sofrimento()
 
 Após executar, confirme a ação de forma natural e contextual.
 

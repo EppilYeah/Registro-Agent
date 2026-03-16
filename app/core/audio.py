@@ -73,7 +73,7 @@ class AudioHandler:
 
         self.rec_sr = sr.Recognizer()
         self.rec_sr.pause_threshold = 2.0
-        self.rec_sr.energy_threshold = 300
+        self.rec_sr.energy_threshold = 500
         self.rec_sr.dynamic_energy_threshold = True
 
     def _iniciar_mic(self):
@@ -137,7 +137,7 @@ class AudioHandler:
                     conf = self.vad_model(
                         torch.from_numpy(float_audio), 16000).item()
 
-                    if conf > 0.92 and energia > 0.05:
+                    if conf > 0.82 and energia > 0.05:
                         voz_consecutiva += 1
                     else:
                         voz_consecutiva = max(0, voz_consecutiva - 1) 

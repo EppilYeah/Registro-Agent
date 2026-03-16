@@ -1,9 +1,12 @@
 import os
+import sys
 import threading
 import subprocess
 import datetime
 import pyautogui
 import math
+import time
+import subprocess
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IMMDeviceEnumerator, EDataFlow, ERole
 from ctypes import cast, POINTER
@@ -133,3 +136,10 @@ class Systemhandler:
             
         if self.funcao_falar:
             self.funcao_falar(texto_final, "arrogante")
+            
+    def finalizar_sofrimento(self):
+        time.sleep(5)
+        os.system(f'taskkill /fi "WINDOWTITLE eq REG / UI"')
+        os._exit(0)
+
+    
