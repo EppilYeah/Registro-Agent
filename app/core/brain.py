@@ -1,4 +1,6 @@
 import json
+import os
+import re
 import time
 import traceback
 import sys
@@ -10,7 +12,8 @@ from google.genai import types
 
 class Brain:
     def __init__(self):
-        self.caminho_memoria = "data/brain.jsonl"
+        _raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.caminho_memoria = os.path.join(_raiz, "data", "brain.jsonl")
         self.modelo_nome = ""
         self.contador_requisicoes = 0
         self.chamadas_ultimo_minuto = []
@@ -85,9 +88,14 @@ class Brain:
             pass
         return resultado
 
-    def _registrar_memoria(self, texto, autor):
+    _TOOLS_NAO_PERSISTIR = {"finalizar_sofrimento", "abrir_configuracoes"}
+
+    def _registrar_memoria(self, texto, autor, tool=None):
+        if tool and tool in self._TOOLS_NAO_PERSISTIR:
+            return
         entry = {"data": str(datetime.now()), "autor": autor, "texto": texto}
         try:
+            os.makedirs(os.path.dirname(self.caminho_memoria), exist_ok=True)
             with open(self.caminho_memoria, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except:
@@ -97,7 +105,6 @@ class Brain:
             self._memoria_cache.pop(0)
 
     def carregar_memoria(self):
-        """Novo formato de History no Google GenAI"""
         hist = [
             types.Content(role="user", parts=[types.Part.from_text(text=config.PROMPT_PERSONALIDADE)]),
             types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Sistemas online."}')])
@@ -105,6 +112,9 @@ class Brain:
         for d in self._memoria_cache[-20:]:
             role = "model" if d["autor"] == "REGISTRO" else "user"
             hist.append(types.Content(role=role, parts=[types.Part.from_text(text=d["texto"])]))
+
+        hist.append(types.Content(role="user", parts=[types.Part.from_text(text="[SISTEMA] Nova sessão iniciada. NÃO repita ferramentas ou ações de sessões anteriores.")]))
+        hist.append(types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Nova sessão. Aguardando."}')]))
         return hist
 
     def _carregar_modelo_seguro(self, ignorar=None):
@@ -170,6 +180,7 @@ class Brain:
     def _executar_ferramentas(self, res, tentativa):
         turnos = 0
         ultimo_retorno = None
+        ultimo_tool = None
 
         while True:
             function_calls = []
@@ -189,6 +200,7 @@ class Brain:
                     try:
                         retorno = getattr(self.sistema, fc.name)(**dict(fc.args))
                         ultimo_retorno = retorno
+                        ultimo_tool = fc.name
                     except Exception as e:
                         retorno = f"Erro: {e}"
                 else:
@@ -208,7 +220,7 @@ class Brain:
                 if any(x in str(e).lower() for x in ["429", "quota"]):
                     print("[QUOTA] Sem cota pós-tool. fallback.")
                     if tentativa == 0 and ultimo_retorno:
-                        self._registrar_memoria(ultimo_retorno, "REGISTRO")
+                        self._registrar_memoria(ultimo_retorno, "REGISTRO", tool=ultimo_tool)
                     return {"emocao": "neutro", "texto_resposta": ultimo_retorno or "Tarefa executada."}, True
                 raise
 
@@ -224,7 +236,6 @@ class Brain:
             pass
 
         try:
-            import re
             match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt, re.DOTALL)
             if match:
                 return json.loads(match.group(0))
@@ -245,7 +256,6 @@ class Brain:
                 try:
                     return json.loads(txt_corrigido)
                 except:
-                    import re
                     match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_corrigido, re.DOTALL)
                     if match:
                         return json.loads(match.group(0))
@@ -256,12 +266,26 @@ class Brain:
         print("[JSON] Falha total. Usando texto bruto como fallback.")
         return {"emocao": "confuso", "texto_resposta": texto[:500]}
 
-    def processar_entrada(self, prompt, tentativa=0):
+    def _tentar_parsear_parcial(self, texto):
+        try:
+            limpo = texto.replace("```json", "").replace("```", "").strip()
+            match = re.search(r'"emocao"\s*:\s*"([^"]+)".*?"texto_resposta"\s*:\s*"((?:[^"\\]|\\.)+)"', limpo, re.DOTALL)
+            if match:
+                return {"emocao": match.group(1), "texto_resposta": match.group(2).replace('\\"', '"')}
+        except:
+            pass
+        return None
+
+    def processar_entrada(self, prompt, on_resposta=None, tentativa=0):
         if tentativa >= 2:
-            return {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas."}
+            dados = {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas."}
+            if on_resposta: on_resposta(dados)
+            return dados
 
         if getattr(config, 'MODO_DEBUG', False):
-            return {"emocao": "neutro", "texto_resposta": "Debug ativo"}
+            dados = {"emocao": "neutro", "texto_resposta": "Debug ativo"}
+            if on_resposta: on_resposta(dados)
+            return dados
 
         self._verificar_rate_limit()
 
@@ -272,31 +296,60 @@ class Brain:
         print(f"[REQ #{self.contador_requisicoes}] Tent. {tentativa+1}/2")
 
         try:
-            res = self.chat.send_message(prompt)
-
-            # Tratamento de Bloqueio
-            if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
-                print(f"[BRAIN] Bloqueio detectado. Limpando contexto.")
-                self.chat = self._carregar_modelo_seguro()
-                return {"emocao": "irritado", "texto_resposta": "Minha diretriz de segurança bloqueou a resposta."}
-
-            res, usou_fallback = self._executar_ferramentas(res, tentativa)
-            if usou_fallback:
-                return res
+            texto_acumulado = ""
+            callback_disparado = False
+            tem_function_call = False
 
             try:
-                texto_final = res.text
-            except ValueError:
-                print("[BRAIN] Erro: Resposta vazia.")
-                self.chat = self._carregar_modelo_seguro()
-                return {"emocao": "sarcasmo_tedio", "texto_resposta": "O modelo censurou minha resposta."}
+                stream = self.chat.send_message_stream(prompt)
+                chunks = list(stream)
+                for chunk in chunks:
+                    if hasattr(chunk, 'candidates') and chunk.candidates:
+                        for part in chunk.candidates[0].content.parts if chunk.candidates[0].content else []:
+                            if hasattr(part, 'function_call') and part.function_call:
+                                tem_function_call = True
+                    if chunk.text:
+                        texto_acumulado += chunk.text
+                        if on_resposta and not callback_disparado and not tem_function_call:
+                            dados_parciais = self._tentar_parsear_parcial(texto_acumulado)
+                            if dados_parciais:
+                                callback_disparado = True
+                                on_resposta(dados_parciais)
 
-            dados = self._parsear_json(texto_final)
+                if tem_function_call or not texto_acumulado.strip():
+                    raise AttributeError("fallback para non-stream")
+
+                res_text = texto_acumulado
+            except AttributeError:
+                res = self.chat.send_message(prompt)
+                if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
+                    print(f"[BRAIN] Bloqueio detectado. Limpando contexto.")
+                    self.chat = self._carregar_modelo_seguro()
+                    dados = {"emocao": "irritado", "texto_resposta": "Minha diretriz de segurança bloqueou a resposta."}
+                    if on_resposta and not callback_disparado: on_resposta(dados)
+                    return dados
+                res, usou_fallback = self._executar_ferramentas(res, tentativa)
+                if usou_fallback:
+                    if on_resposta and not callback_disparado: on_resposta(res)
+                    return res
+                try:
+                    res_text = res.text
+                except ValueError:
+                    print("[BRAIN] Erro: Resposta vazia.")
+                    self.chat = self._carregar_modelo_seguro()
+                    dados = {"emocao": "sarcasmo_tedio", "texto_resposta": "O modelo censurou minha resposta."}
+                    if on_resposta and not callback_disparado: on_resposta(dados)
+                    return dados
+
+            dados = self._parsear_json(res_text)
             if not isinstance(dados, dict):
                 dados = {"emocao": "neutro", "texto_resposta": str(dados)}
 
             if tentativa == 0:
                 self._registrar_memoria(dados.get("texto_resposta", ""), "REGISTRO")
+
+            if on_resposta and not callback_disparado:
+                on_resposta(dados)
 
             return dados
 
@@ -307,21 +360,26 @@ class Brain:
                 if tentativa == 0 and self._marcar_chave_esgotada():
                     try:
                         self.chat = self._carregar_modelo_seguro()
-                        return self.processar_entrada(prompt, tentativa + 1)
+                        return self.processar_entrada(prompt, on_resposta, tentativa + 1)
                     except:
                         pass
-                return {"emocao": "confuso", "texto_resposta": "AVISO: Todas chaves esgotadas"}
+                dados = {"emocao": "confuso", "texto_resposta": "AVISO: Todas chaves esgotadas"}
+                if on_resposta: on_resposta(dados)
+                return dados
 
             if "finish_reason" in erro_str or "valid part" in erro_str:
                 self.chat = self._carregar_modelo_seguro()
-                return {"emocao": "irritado", "texto_resposta": "Histórico reiniciado."}
+                dados = {"emocao": "irritado", "texto_resposta": "Histórico reiniciado."}
+                if on_resposta: on_resposta(dados)
+                return dados
 
             traceback.print_exc()
-            return {"emocao": "confuso", "texto_resposta": "Erro no processamento."}
+            dados = {"emocao": "confuso", "texto_resposta": "Erro no processamento."}
+            if on_resposta: on_resposta(dados)
+            return dados
 
     def gerar_texto_aleatorio(self, tema):
         try:
-            # Chama o modelo diretamente
             response = self.client.models.generate_content(
                 model=self.modelo_nome,
                 contents=f'Você é REGISTRO (GLaDOS). Lembrete: "{tema}". Frase bem curta, não necessarimente sarcasticas sarcástica. SEM JSON.'

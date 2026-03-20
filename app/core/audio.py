@@ -10,13 +10,13 @@ import pyaudio
 import vosk
 import edge_tts
 import torch
-import eel
+import settings
 import speech_recognition as sr
 import soundfile as sf
 import numpy as np
+from faster_whisper import WhisperModel
 from pedalboard import Pedalboard, Compressor, HighpassFilter, Gain, Limiter, PeakFilter, PitchShift, Delay, Reverb, Chorus
 
-# CONFIGURAÇÕES E CONSTANTES
 CONF = {
     "rate": 16000, "chunk": 1024, "vad_chunk": 512,
     "voice": "pt-BR-ThalitaNeural",
@@ -42,10 +42,8 @@ class AudioHandler:
         self.pa = pyaudio.PyAudio()
         self.root = os.path.dirname(os.path.abspath(__file__))
 
-        # inicialização de Modelos (VAD, Vosk, SR)
         self._carregar_modelos()
 
-        # Inicialização de Stream e Estado
         self.stream_vad = self._iniciar_mic()
         self.falando = False
         self.interrompido = False
@@ -54,17 +52,14 @@ class AudioHandler:
         self._loop_thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._loop_thread.start()
 
-        # efeitos
         self.board = Pedalboard([
             PitchShift(semitones=2.5),
-            Chorus(rate_hz=1.5, depth=0.15,
-                   centre_delay_ms=5.0, feedback=0.0, mix=0.25),
+            Chorus(rate_hz=1.5, depth=0.15, centre_delay_ms=5.0, feedback=0.0, mix=0.25),
             Delay(delay_seconds=0.018, feedback=0.1, mix=0.35),
             PeakFilter(cutoff_frequency_hz=3800, gain_db=12, q=1.5),
             Reverb(room_size=0.25, damping=0.3, wet_level=0.1, dry_level=0.45),
             HighpassFilter(cutoff_frequency_hz=450),
-            Compressor(threshold_db=-20, ratio=8,
-                       attack_ms=0.1, release_ms=50),
+            Compressor(threshold_db=-20, ratio=8, attack_ms=0.1, release_ms=50),
             Gain(gain_db=4), Limiter(threshold_db=-0.5)
         ])
 
@@ -80,7 +75,6 @@ class AudioHandler:
         print("[AUDIO] Microfone calibrado.")
 
     def _carregar_modelos(self):
-        """Carrega recursos pesados"""
         try:
             path_vad = os.path.join(self.root, CONF["paths"]["vad"])
             self.vad_model = torch.jit.load(path_vad).eval()
@@ -89,15 +83,21 @@ class AudioHandler:
 
         try:
             path_vosk = os.path.join(self.root, CONF["paths"]["vosk"])
-            self.rec_vosk = vosk.KaldiRecognizer(
-                vosk.Model(path_vosk), CONF["rate"])
+            self.rec_vosk = vosk.KaldiRecognizer(vosk.Model(path_vosk), CONF["rate"])
         except:
             self.rec_vosk = None
 
+        try:
+            self.whisper = WhisperModel("tiny", device="cpu", compute_type="int8")
+            print("[AUDIO] Whisper carregado.")
+        except Exception as e:
+            self.whisper = None
+            print(f"[AUDIO] Whisper indisponível: {e}")
+
         self.rec_sr = sr.Recognizer()
-        self.rec_sr.pause_threshold = 0.8
-        self.rec_sr.non_speaking_duration = 0.4
-        self.rec_sr.energy_threshold = 300
+        self.rec_sr.pause_threshold = 0.5
+        self.rec_sr.non_speaking_duration = 0.3
+        self.rec_sr.energy_threshold = settings.get("energia_microfone")
         self.rec_sr.dynamic_energy_threshold = False
 
     def _iniciar_mic(self):
@@ -109,14 +109,9 @@ class AudioHandler:
         except:
             return None
 
-    # PROCESSAMENTO DE ÁUDIO
     def _efeitos_analogicos(self, audio, sr):
-        """Drift Matemático + Pedalboard"""
-        # Drift
         np.multiply(audio, 0.98 + 0.02 * np.sin(
             2 * np.pi * 0.1 * np.arange(len(audio), dtype=np.float32) / sr), out=audio)
-
-        # Pedalboard
         processado = self.board(audio, sr)
         return (processado * 32767).astype(np.int16).tobytes()
 
@@ -128,11 +123,12 @@ class AudioHandler:
                 if self.stream_vad.is_stopped():
                     time.sleep(0.02)
                     continue
+                if not settings.get("vad_ativo"):
+                    time.sleep(0.05)
+                    continue
                 try:
-                    raw = self.stream_vad.read(
-                        CONF["vad_chunk"], exception_on_overflow=False)
-                    np.copyto(buf_vad,
-                              np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0)
+                    raw = self.stream_vad.read(CONF["vad_chunk"], exception_on_overflow=False)
+                    np.copyto(buf_vad, np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0)
 
                     energia = np.sqrt(np.mean(buf_vad ** 2))
 
@@ -141,12 +137,16 @@ class AudioHandler:
                         conf = self.vad_model(tensor, 16000).item()
                         del tensor
 
-                    if conf > 0.88 and energia > 0.08:
+                    threshold = settings.get("vad_threshold")
+                    energia_min = settings.get("vad_energia")
+                    consecutivo_max = settings.get("vad_consecutivo")
+
+                    if conf > threshold and energia > energia_min:
                         voz_consecutiva += 1
                     else:
                         voz_consecutiva = max(0, voz_consecutiva - 1)
 
-                    if voz_consecutiva >= 8:
+                    if voz_consecutiva >= consecutivo_max:
                         print("[MIRA] Interrupção detectada.")
                         self.interrompido = True
                 except:
@@ -216,23 +216,19 @@ class AudioHandler:
         self.falando = False
         return self.interrompido
 
-    # API PÚBLICA
     def falar(self, texto, emocao='neutro'):
         if not texto:
             return False
 
-        # Prepara texto
         txt = html.unescape(texto.replace('... ', ', hmmm... ')).replace(
             "<", "").replace(">", "").strip()
         print(f"[REGISTRO] Falando: {txt}...")
 
-        # Seleciona parametros
         params = EMOCOES.get(emocao, EMOCOES['neutro'])
 
         async def _executar():
             try:
                 if self.interrompido:
-                    # breve pausa se foi interrompido antes
                     await asyncio.sleep(0.1)
                 return await self._falar_streaming(txt, params)
             except Exception as e:
@@ -267,12 +263,25 @@ class AudioHandler:
     def ouvir_comando(self):
         if self.stream_vad and not self.stream_vad.is_stopped():
             self.stream_vad.stop_stream()
+        self.rec_sr.energy_threshold = settings.get("energia_microfone")
         print("[REGISTRO] Ouvindo comando...")
         try:
             with sr.Microphone() as source:
-                audio = self.rec_sr.listen(
-                    source, timeout=5, phrase_time_limit=15)
-                return self.rec_sr.recognize_google(audio, language="pt-BR")
+                audio_data = self.rec_sr.listen(source, timeout=5, phrase_time_limit=15)
+
+            if self.whisper:
+                try:
+                    raw = audio_data.get_raw_data(convert_rate=16000, convert_width=2)
+                    audio_np = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+                    segments, _ = self.whisper.transcribe(audio_np, language="pt")
+                    texto = " ".join(s.text for s in segments).strip()
+                    if texto:
+                        return texto
+                except Exception as e:
+                    print(f"[WHISPER] Falha, usando Google: {e}")
+
+            return self.rec_sr.recognize_google(audio_data, language="pt-BR")
+
         except sr.WaitTimeoutError:
             return None
         except:

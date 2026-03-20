@@ -104,6 +104,42 @@ LISTA_FERRAMENTAS = [
                 )
             )
         ]
+    ),
+
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="abrir_configuracoes",
+                description="Abre o painel de configurações do REGISTRO, expandindo a interface gráfica com controles de sistema.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={}
+                )
+            )
+        ]
+    ),
+
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="alterar_configuracao",
+                description="Ativa ou desativa uma configuração do REGISTRO por comando de voz. Configurações disponíveis: 'vad_ativo' (detecção de interrupção), 'camera_ativa' (rastreamento facial), 'modo_debug'.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "chave": types.Schema(
+                            type=types.Type.STRING,
+                            description="Nome da configuração. Valores aceitos: 'vad_ativo', 'camera_ativa', 'modo_debug'."
+                        ),
+                        "valor": types.Schema(
+                            type=types.Type.BOOLEAN,
+                            description="True para ativar, False para desativar."
+                        )
+                    },
+                    required=["chave", "valor"]
+                )
+            )
+        ]
     )
 ]
 

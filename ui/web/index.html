@@ -4,50 +4,243 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
-    <script type="text/javascript" src="/eel.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
     <title>REG / UI</title>
-    <style>
-        #barra-arrastar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 30px;
-            -webkit-app-region: drag;
-            z-index: 1000;
-            cursor: move;
-            background: transparent;
-        }
-        
-        #btn-fechar {
-            position: fixed;
-            top: 5px;
-            right: 10px;
-            width: 20px;
-            height: 20px;
-            -webkit-app-region: no-drag;
-            z-index: 1001;
-            cursor: pointer;
-            color: #ff0000;
-            font-size: 18px;
-            font-weight: bold;
-            text-align: center;
-            line-height: 20px;
-            opacity: 0.6;
-            transition: opacity 0.2s;
-        }
-        
-        #btn-fechar:hover {
-            opacity: 1;
-        }
-    </style>
 </head>
 <body>
-    <div id="barra-arrastar"></div>
-    
-    <div id="btn-fechar" onclick="window.close()">×</div>
-    
-    <script src="sketch.js"></script>
+
+<div id="barra-arrastar"></div>
+<div id="btn-fechar" onclick="window.pywebview.api.fechar_janela()">×</div>
+
+<div id="eye-overlay">
+    <div class="eye-corner tl"></div>
+    <div class="eye-corner tr"></div>
+    <div class="eye-corner bl"></div>
+    <div class="eye-corner br"></div>
+    <div class="eye-label top">MODULO OPTICO // REG//</div>
+    <div class="eye-label bottom" id="eye-emocao">ESTADO: OPERANTE</div>
+    <div class="eye-coord tl">00:00</div>
+    <div class="eye-coord tr">FF:FF</div>
+    <div class="eye-coord bl">A0:3C</div>
+    <div class="eye-coord br">7E:B1</div>
+    <div class="eye-crossh h"></div>
+    <div class="eye-crossh v"></div>
+    <div class="eye-scanlines"></div>
+</div>
+
+<div id="painel-config">
+    <div class="eva-scanlines"></div>
+    <div id="boot-flash"></div>
+
+    <div class="eva-header">
+        <div class="eva-header-left">
+            <span class="eva-nerv">◆ REGISTRO</span>
+            <span class="eva-hsep">│</span>
+            <span class="eva-htitle">SISTEMA DE MODULAÇÃO INTEGRADO</span>
+            <span class="eva-hsep">│</span>
+            <span class="eva-hsub">REGISTRO // ADMIN</span>
+        </div>
+        <div class="eva-header-right">
+            <span id="eva-clock">--:--:--</span>
+            <button class="eva-btn-fechar" onclick="fecharConfig()">✕ FECHAR</button>
+        </div>
+    </div>
+
+    <div class="eva-subheader">
+        <span class="eva-dot d1">●</span> UPLINK ATIVO
+        <span class="eva-sep2">◆</span>
+        <span class="eva-dot d2">●</span> AUTORIZAÇÃO ADMIN
+        <span class="eva-sep2">◆</span>
+        OPERADOR: VELORIE
+        <span class="eva-sep2">◆</span>
+        <span id="eva-status-msg">SISTEMA OPERACIONAL NOMINAL</span>
+    </div>
+
+    <div class="eva-content">
+
+        <div class="eva-panel" id="panel-auditivo">
+            <div class="eva-panel-header">
+                <div class="eva-panel-title">
+                    <span class="eva-panel-icon">▶</span>
+                    MÓDULO AUDITIVO
+                </div>
+                <span class="eva-badge">ONLINE</span>
+            </div>
+            <div class="eva-panel-body">
+
+                <div class="eva-field">
+                    <span class="eva-label">DETECÇÃO DE INTERRUPÇÃO (VAD)</span>
+                    <div class="eva-toggle active" id="toggle-vad_ativo"
+                         onclick="toggleConfig('vad_ativo', this)">
+                        <div class="eva-toggle-track">
+                            <div class="eva-toggle-thumb"></div>
+                        </div>
+                        <span id="lbl-vad_ativo">ATIVO</span>
+                    </div>
+                </div>
+
+                <div class="eva-divider">
+                    <span class="eva-divider-label">PARÂMETROS VAD</span>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">LIMIAR DETECÇÃO</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="70" max="99" value="88"
+                               id="slider-vad_threshold" style="--fill: 60%"
+                               oninput="sliderConfig('vad_threshold',this.value/100,'val-vad_threshold',v=>parseFloat(v).toFixed(2));updateFill(this,70,99)">
+                        <span class="eva-val" id="val-vad_threshold">0.88</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">LIMIAR ENERGIA</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="1" max="30" value="8"
+                               id="slider-vad_energia" style="--fill: 24%"
+                               oninput="sliderConfig('vad_energia',this.value/100,'val-vad_energia',v=>parseFloat(v).toFixed(2));updateFill(this,1,30)">
+                        <span class="eva-val" id="val-vad_energia">0.08</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">FRAMES CONSECUTIVOS</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="3" max="20" value="8"
+                               id="slider-vad_consecutivo" style="--fill: 29%"
+                               oninput="sliderConfig('vad_consecutivo',parseInt(this.value),'val-vad_consecutivo',v=>v);updateFill(this,3,20)">
+                        <span class="eva-val" id="val-vad_consecutivo">8</span>
+                    </div>
+                </div>
+
+                <div class="eva-divider">
+                    <span class="eva-divider-label">MICROFONE</span>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">SENSIBILIDADE</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="100" max="800" value="300"
+                               id="slider-energia_microfone" style="--fill: 29%"
+                               oninput="sliderConfig('energia_microfone',parseInt(this.value),'val-energia_microfone',v=>v);updateFill(this,100,800)">
+                        <span class="eva-val" id="val-energia_microfone">300</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="eva-col-right">
+
+            <div class="eva-panel">
+                <div class="eva-panel-header">
+                    <div class="eva-panel-title">
+                        <span class="eva-panel-icon">▶</span>
+                        MÓDULO VISUAL
+                    </div>
+                    <span class="eva-badge">ONLINE</span>
+                </div>
+                <div class="eva-panel-body">
+                    <div class="eva-field">
+                        <span class="eva-label">RASTREAMENTO FACIAL</span>
+                        <div class="eva-toggle active" id="toggle-camera_ativa"
+                             onclick="toggleConfig('camera_ativa', this)">
+                            <div class="eva-toggle-track">
+                                <div class="eva-toggle-thumb"></div>
+                            </div>
+                            <span id="lbl-camera_ativa">ATIVO</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="eva-panel">
+                <div class="eva-panel-header">
+                    <div class="eva-panel-title">
+                        <span class="eva-panel-icon">▶</span>
+                        MÓDULO COGNITIVO
+                    </div>
+                    <span class="eva-badge">ONLINE</span>
+                </div>
+                <div class="eva-panel-body">
+                    <div class="eva-field">
+                        <span class="eva-label">MODELO LLM ATIVO</span>
+                        <select class="eva-select" id="select-modelo"
+                                onchange="updateConfig('modelo', this.value)">
+                            <option value="gemini-2.5-flash">GEMINI 2.5 FLASH</option>
+                            <option value="gemini-2.5-pro">GEMINI 2.5 PRO</option>
+                            <option value="gemini-2.0-flash">GEMINI 2.0 FLASH</option>
+                            <option value="gemini-flash-latest">GEMINI FLASH LATEST</option>
+                        </select>
+                    </div>
+                    <div class="eva-field">
+                        <span class="eva-label">MODO DEBUG</span>
+                        <div class="eva-toggle" id="toggle-modo_debug"
+                             onclick="toggleConfig('modo_debug', this)">
+                            <div class="eva-toggle-track">
+                                <div class="eva-toggle-thumb"></div>
+                            </div>
+                            <span id="lbl-modo_debug">INATIVO</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="eva-panel eva-panel-data">
+                <div class="eva-panel-header">
+                    <div class="eva-panel-title">
+                        <span class="eva-panel-icon">▶</span>
+                        DADOS DO SISTEMA
+                    </div>
+                    <span class="eva-badge eva-badge-live">● INICIALIZADO</span>
+                </div>
+                <div class="eva-panel-body">
+                    <div class="eva-data-row">
+                        <span class="eva-data-key">ESTADO</span>
+                        <span class="eva-data-val green" id="d-estado">OPERACIONAL</span>
+                    </div>
+                    <div class="eva-data-row">
+                        <span class="eva-data-key">VERSÃO</span>
+                        <span class="eva-data-val">REGISTRO 8.0</span>
+                    </div>
+                    <div class="eva-data-row">
+                        <span class="eva-data-key">TEMPO OPERACIONAL</span>
+                        <span class="eva-data-val orange" id="d-uptime">00:00:00</span>
+                    </div>
+                    <div class="eva-data-row">
+                        <span class="eva-data-key">MEMÓRIA</span>
+                        <span class="eva-data-val" id="d-mem">ANALISADA</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="eva-footer">
+        <div class="eva-magi">
+            <span class="eva-dot m1">●</span>
+            <span>VEL-01</span>
+            <span class="eva-magi-name">MENTE</span>
+        </div>
+        <span class="eva-magi-sep">◆</span>
+        <div class="eva-magi">
+            <span class="eva-dot m2">●</span>
+            <span>RATH-02</span>
+            <span class="eva-magi-name">CORPO</span>
+        </div>
+        <span class="eva-magi-sep">◆</span>
+        <div class="eva-magi">
+            <span class="eva-dot m3">●</span>
+            <span>AS-03</span>
+            <span class="eva-magi-name">ASSIMILADO</span>
+        </div>
+        <div class="eva-footer-right">
+            SISTEMA DE DIAGNOSTICO // ACESSO LIMITADO A CONSCIENCIA
+        </div>
+    </div>
+</div>
+
+<script src="sketch.js"></script>
 </body>
 </html>
