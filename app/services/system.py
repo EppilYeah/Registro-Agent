@@ -6,56 +6,62 @@ import datetime
 import pyautogui
 import math
 import time
-import subprocess
+import base64
+import pyperclip
 import settings
+from PIL import ImageGrab
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IMMDeviceEnumerator, EDataFlow, ERole
 from ctypes import cast, POINTER
 from comtypes import CoCreateInstance, GUID
 
+try:
+    import urllib.request
+    import urllib.parse
+    import json as _json
+except:
+    pass
 
 
 class Systemhandler:
-    def __init__(self, funcao_falar=None, funcao_gerar_texto=None, funcao_js=None):
+    def __init__(self, funcao_falar=None, funcao_gerar_texto=None, funcao_js=None, funcao_brain_client=None):
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 1.0
 
         self.funcao_falar = funcao_falar
         self.funcao_gerar_texto = funcao_gerar_texto
         self.funcao_js = funcao_js
+        self.funcao_brain_client = funcao_brain_client
         self.volume_control = None
 
         self._inicializar_audio()
 
         self.skills = {
-            "volume_pc" : self.volume_pc,
-            "pausar_midia" : self.pausar_midia,
-            "abrir_whatsapp_web" : self.abrir_whatsapp_web,
-            "agendar_lembrete" : self.agendar_lembrete,
-            "abrir_configuracoes" : self.abrir_configuracoes,
-            "alterar_configuracao" : self.alterar_configuracao
+            "volume_pc": self.volume_pc,
+            "pausar_midia": self.pausar_midia,
+            "abrir_whatsapp_web": self.abrir_whatsapp_web,
+            "agendar_lembrete": self.agendar_lembrete,
+            "abrir_configuracoes": self.abrir_configuracoes,
+            "alterar_configuracao": self.alterar_configuracao,
+            "finalizar_sofrimento": self.finalizar_sofrimento,
+            "pesquisar_web": self.pesquisar_web,
+            "ler_clipboard": self.ler_clipboard,
+            "escrever_clipboard": self.escrever_clipboard,
+            "executar_comando": self.executar_comando,
+            "ver_tela": self.ver_tela,
         }
 
     def _inicializar_audio(self):
         try:
             CLSID_MMDeviceEnumerator = GUID('{BCDE0395-E52F-467C-8E3D-C4579291692E}')
             IID_IMMDeviceEnumerator = GUID('{A95664D2-9614-4F35-A746-DE8DB63617E6}')
-
-            deviceEnumerator = CoCreateInstance(
-                CLSID_MMDeviceEnumerator,
-                IMMDeviceEnumerator,
-                CLSCTX_ALL
-            )
-
+            deviceEnumerator = CoCreateInstance(CLSID_MMDeviceEnumerator, IMMDeviceEnumerator, CLSCTX_ALL)
             device = deviceEnumerator.GetDefaultAudioEndpoint(EDataFlow.eRender.value, ERole.eMultimedia.value)
-
             IID_IAudioEndpointVolume = GUID('{5CDF2C82-841E-4546-9722-0CF74078229A}')
             interface = device.Activate(IID_IAudioEndpointVolume, CLSCTX_ALL, None)
             self.volume_control = cast(interface, POINTER(IAudioEndpointVolume))
-
             volume_atual = self.volume_control.GetMasterVolumeLevelScalar()
             print(f"[AUDIO] Driver carregado. Volume atual: {int(volume_atual * 100)}%")
-
         except Exception as e:
             print(f"[AUDIO] Falha ao inicializar: {e}")
             import traceback
@@ -65,14 +71,11 @@ class Systemhandler:
     def volume_pc(self, modo, valor=0):
         if not self.volume_control:
             return "Erro: Driver de áudio não disponível. Execute como administrador."
-
         try:
             valor_float = float(valor)
             valor_os = valor_float / 100.0
             volume_atual = self.volume_control.GetMasterVolumeLevelScalar()
-
             novo_volume = volume_atual
-
             if modo == "definir":
                 novo_volume = valor_os
             elif modo == "aumentar":
@@ -84,13 +87,9 @@ class Systemhandler:
                 self.volume_control.SetMute(not mute_atual, None)
                 status = "ativado" if not mute_atual else "desativado"
                 return f"Mudo {status}."
-
             novo_volume = max(0.0, min(1.0, novo_volume))
-
             self.volume_control.SetMasterVolumeLevelScalar(novo_volume, None)
-
             return f"Volume ajustado para {int(novo_volume * 100)}%."
-
         except Exception as e:
             return f"Erro ao ajustar volume: {e}"
 
@@ -123,15 +122,12 @@ class Systemhandler:
 
     def _disparar_alerta(self, mensagem_bruta):
         print(f"\n[ALERTA] {mensagem_bruta}")
-
         texto_final = f"Lembrete: {mensagem_bruta}"
-
         if self.funcao_gerar_texto:
             try:
                 texto_final = self.funcao_gerar_texto(mensagem_bruta)
             except:
                 pass
-
         if self.funcao_falar:
             self.funcao_falar(texto_final, "arrogante")
 
@@ -144,7 +140,7 @@ class Systemhandler:
             return f"Erro: {e}"
 
     def alterar_configuracao(self, chave, valor):
-        _CHAVES_PERMITIDAS = {"vad_ativo", "camera_ativa", "modo_debug"}
+        _CHAVES_PERMITIDAS = {"vad_ativo", "camera_ativa", "modo_debug", "comportamento_espontaneo"}
         if chave not in _CHAVES_PERMITIDAS:
             return f"Configuração '{chave}' não reconhecida."
         try:
@@ -153,7 +149,8 @@ class Systemhandler:
             nomes = {
                 "vad_ativo": "Detecção de interrupção",
                 "camera_ativa": "Rastreamento facial",
-                "modo_debug": "Modo debug"
+                "modo_debug": "Modo debug",
+                "comportamento_espontaneo": "Comportamento espontâneo",
             }
             if self.funcao_js:
                 js_val = "true" if valor else "false"
@@ -161,6 +158,81 @@ class Systemhandler:
             return f"{nomes.get(chave, chave)} {estado}."
         except Exception as e:
             return f"Erro: {e}"
+
+    def pesquisar_web(self, query):
+        try:
+            from duckduckgo_search import DDGS
+            with DDGS() as ddgs:
+                resultados = list(ddgs.text(query, region="br-pt", max_results=4))
+            if not resultados:
+                return f"Sem resultados para '{query}'."
+            partes = []
+            for r in resultados:
+                titulo = r.get("title", "")
+                corpo = r.get("body", "")
+                if corpo:
+                    partes.append(f"{titulo}: {corpo[:200]}")
+            return " | ".join(partes) if partes else f"Sem resultados para '{query}'."
+        except Exception as e:
+            return f"Erro na pesquisa: {e}"
+
+    def ler_clipboard(self):
+        try:
+            texto = pyperclip.paste()
+            if not texto:
+                return "Clipboard vazio."
+            return f"Clipboard: {texto[:500]}"
+        except Exception as e:
+            return f"Erro ao ler clipboard: {e}"
+
+    def escrever_clipboard(self, texto):
+        try:
+            pyperclip.copy(texto)
+            return "Texto copiado para o clipboard."
+        except Exception as e:
+            return f"Erro ao escrever clipboard: {e}"
+
+    def executar_comando(self, cmd, confirmado=False):
+        if not confirmado:
+            return f"Confirmação necessária para executar: '{cmd}'"
+        try:
+            resultado = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=15
+            )
+            saida = resultado.stdout.strip() or resultado.stderr.strip() or "Comando executado sem saída."
+            return saida[:600]
+        except subprocess.TimeoutExpired:
+            return "Timeout: comando demorou mais de 15 segundos."
+        except Exception as e:
+            return f"Erro ao executar: {e}"
+
+    def ver_tela(self):
+        try:
+            if not self.funcao_brain_client:
+                return "Cliente de IA não disponível para análise visual."
+
+            img = ImageGrab.grab()
+            img = img.resize((1280, 720))
+
+            import io
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=70)
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+            from google.genai import types as gtypes
+            response = self.funcao_brain_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[
+                    gtypes.Part.from_bytes(
+                        data=base64.b64decode(img_b64),
+                        mime_type="image/jpeg"
+                    ),
+                    "Descreva de forma concisa o que está visível nesta tela. Foque no conteúdo principal."
+                ]
+            )
+            return response.text.strip()
+        except Exception as e:
+            return f"Erro ao capturar tela: {e}"
 
     def finalizar_sofrimento(self):
         time.sleep(5)

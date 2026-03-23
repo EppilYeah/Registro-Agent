@@ -32,7 +32,6 @@ let painelAberto = false;
 let uptimeSegundos = 0;
 
 const LARGURA_PAINEL = 310;
-const LARGURA_OLHO_CONFIG = 300;
 
 const EXPRESSOES = {
     "neutro": {
@@ -42,7 +41,8 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.01,
         intensidadeRespiracao: 0.03,
         comportamentoPupila: "saltos_rapidos",
-        formatoOlho: "circular"
+        formatoOlho: "circular",
+        brilhoMultiplicador: 1.0
     },
     "sarcasmo_tedio": {
         r: 100, g: 150, b: 255,
@@ -51,7 +51,8 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.01,
         intensidadeRespiracao: 0.02,
         comportamentoPupila: "centralizado",
-        formatoOlho: "meia_lua"
+        formatoOlho: "meia_lua",
+        brilhoMultiplicador: 1.0
     },
     "irritado": {
         r: 255, g: 0, b: 0,
@@ -60,7 +61,8 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.1,
         intensidadeRespiracao: 0.02,
         comportamentoPupila: "centralizado",
-        formatoOlho: "erratico"
+        formatoOlho: "erratico",
+        brilhoMultiplicador: 1.0
     },
     "confuso": {
         r: 255, g: 150, b: 0,
@@ -69,7 +71,8 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.02,
         intensidadeRespiracao: 0.05,
         comportamentoPupila: "espiral",
-        formatoOlho: "arregalado"
+        formatoOlho: "arregalado",
+        brilhoMultiplicador: 1.0
     },
     "desconfiado": {
         r: 255, g: 255, b: 0,
@@ -78,7 +81,8 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.02,
         intensidadeRespiracao: 0.03,
         comportamentoPupila: "observando_rapido",
-        formatoOlho: "circular"
+        formatoOlho: "circular",
+        brilhoMultiplicador: 1.0
     },
     "arrogante": {
         r: 200, g: 0, b: 255,
@@ -87,7 +91,8 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.02,
         intensidadeRespiracao: 0.04,
         comportamentoPupila: "cantos_lentos",
-        formatoOlho: "distorcido_leve"
+        formatoOlho: "distorcido_leve",
+        brilhoMultiplicador: 1.0
     },
     "feliz": {
         r: 0, g: 255, b: 200,
@@ -96,7 +101,8 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.03,
         intensidadeRespiracao: 0.05,
         comportamentoPupila: "centro_com_saltos",
-        formatoOlho: "circular"
+        formatoOlho: "circular",
+        brilhoMultiplicador: 1.0
     },
     "ouvindo": {
         r: 0, g: 180, b: 255,
@@ -105,13 +111,41 @@ const EXPRESSOES = {
         velocidadeMovimento: 0.02,
         intensidadeRespiracao: 0.04,
         comportamentoPupila: "centralizado",
-        formatoOlho: "circular"
+        formatoOlho: "circular",
+        brilhoMultiplicador: 1.0
+    },
+    "dormindo": {
+        r: 0, g: 60, b: 0,
+        tamanhoPupila: 0.15,
+        deformacao: 0.04,
+        velocidadeMovimento: 0.003,
+        intensidadeRespiracao: 0.008,
+        comportamentoPupila: "centralizado",
+        formatoOlho: "meia_lua",
+        brilhoMultiplicador: 0.18
     }
 };
 
 let expressaoAtual = EXPRESSOES["neutro"];
 let expressaoAlvo = EXPRESSOES["neutro"];
 let progressoTransicao = 1.0;
+
+let _framesCalibracao = 0;
+let _bgAlpha = 0;
+
+const BOOT = {
+    FASE_SCAN: 0,
+    FASE_OLHO: 1,
+    FASE_COMPLETO: 2
+};
+
+let boot = {
+    ativo: true,
+    fase: BOOT.FASE_SCAN,
+    frame: 0,
+    scanY: 0,
+    pixelsOlho: [],
+};
 
 function _api() {
     return window.pywebview && window.pywebview.api ? window.pywebview.api : null;
@@ -136,7 +170,7 @@ function jsAtualizarRosto(emocao, falando) {
     alvo.intensidadeRespiracao = expressaoAlvo.intensidadeRespiracao;
 
     let el = document.getElementById('eye-emocao');
-    if (el) el.textContent = 'STATE: ' + emocao.toUpperCase();
+    if (el) el.textContent = 'ESTADO: ' + emocao.toUpperCase();
 }
 
 function jsAtualizarOlhar(x, y, encontrouRosto) {
@@ -211,7 +245,7 @@ function toggleConfig(chave, el) {
     document.getElementById('lbl-' + chave).textContent = ativo ? 'ATIVO' : 'INATIVO';
     let api = _api();
     if (api) api.atualizar_setting(chave, ativo);
-    atualizarStatusMsg("MODULO ATUALIZADO: " + chave.toUpperCase());
+    atualizarStatusMsg("CONFIG ATUALIZADO: " + chave.toUpperCase());
 }
 
 function sliderConfig(chave, valor, labelId, fmt) {
@@ -223,7 +257,7 @@ function sliderConfig(chave, valor, labelId, fmt) {
 function updateConfig(chave, valor) {
     let api = _api();
     if (api) api.atualizar_setting(chave, valor);
-    atualizarStatusMsg("MODULO ATUALIZADO: " + chave.toUpperCase());
+    atualizarStatusMsg("CONFIG ATUALIZADO: " + chave.toUpperCase());
 }
 
 function sincronizarUI(cfg) {
@@ -232,6 +266,7 @@ function sincronizarUI(cfg) {
     sincronizarToggle('vad_ativo', cfg.vad_ativo !== false);
     sincronizarToggle('camera_ativa', cfg.camera_ativa !== false);
     sincronizarToggle('modo_debug', cfg.modo_debug === true);
+    sincronizarToggle('comportamento_espontaneo', cfg.comportamento_espontaneo !== false);
 
     sincronizarSlider('vad_threshold', cfg.vad_threshold, 'val-vad_threshold',
         v => parseFloat(v).toFixed(2), v => Math.round(v * 100));
@@ -241,6 +276,14 @@ function sincronizarUI(cfg) {
         v => v, v => v);
     sincronizarSlider('energia_microfone', cfg.energia_microfone, 'val-energia_microfone',
         v => v, v => v);
+    sincronizarSlider('modo_ambient_timeout_min', cfg.modo_ambient_timeout_min, 'val-ambient_timeout',
+        v => v + 'min', v => v);
+    sincronizarSlider('dormindo_timeout_min', cfg.dormindo_timeout_min, 'val-dormindo_timeout',
+        v => v + 'min', v => v);
+    sincronizarSlider('espontaneo_cooldown_min', cfg.espontaneo_cooldown_min, 'val-espontaneo_cooldown',
+        v => v + 'min', v => v);
+    sincronizarSlider('espontaneo_limite_diario', cfg.espontaneo_limite_diario, 'val-espontaneo_limite',
+        v => v + 'x', v => v);
 
     let sel = document.getElementById('select-modelo');
     if (sel && cfg.modelo) sel.value = cfg.modelo;
@@ -300,23 +343,6 @@ function atualizarStatusMsg(msg) {
     }, 2500);
 }
 
-let _framesCalibracao = 0;
-let _bgAlpha = 0;
-
-const BOOT = {
-    FASE_SCAN:     0,
-    FASE_OLHO:     1,
-    FASE_COMPLETO: 2
-};
-
-let boot = {
-    ativo: true,
-    fase: BOOT.FASE_SCAN,
-    frame: 0,
-    scanY: 0,
-    pixelsOlho: [],
-};
-
 function _iniciarBootAnimation() {
     boot.ativo = true;
     boot.fase = BOOT.FASE_SCAN;
@@ -358,7 +384,6 @@ function _desenharBoot() {
         boot.scanY += 5;
 
         noStroke();
-
         fill(0, 0, 0, map(boot.scanY, 0, height, 0, 180));
         rect(0, 0, width, boot.scanY - 40);
 
@@ -418,17 +443,8 @@ function _desenharBoot() {
                 let n = noise(p.x * 0.3, p.y * 0.3, boot.frame * 0.12);
                 let alpha = map(n, 0.3, 0.7, 80, 255);
                 let glitch = n > 0.78;
-                fill(
-                    glitch ? 255 : 0,
-                    glitch ? 60 : floor(map(alpha, 80, 255, 120, 255)),
-                    0,
-                    alpha
-                );
-                rect(
-                    ox + p.x * px + random(-0.8, 0.8),
-                    oy + p.y * px + random(-0.4, 0.4),
-                    px - 1, px - 1, 2
-                );
+                fill(glitch ? 255 : 0, glitch ? 60 : floor(map(alpha, 80, 255, 120, 255)), 0, alpha);
+                rect(ox + p.x * px + random(-0.8, 0.8), oy + p.y * px + random(-0.4, 0.4), px - 1, px - 1, 2);
             }
         }
 
@@ -462,7 +478,6 @@ function setup() {
     createCanvas(windowWidth, windowHeight);
     noStroke();
     tamanhoPixel = min(width, height) / colunas;
-
     console.log("[UI] Canvas inicializado");
     _iniciarBootAnimation();
 }
@@ -484,10 +499,11 @@ function draw() {
     _bgAlpha = lerp(_bgAlpha, 255, 0.08);
     background(10, 10, 10, _bgAlpha);
 
+    let brilho = expressaoAlvo.brilhoMultiplicador !== undefined ? expressaoAlvo.brilhoMultiplicador : 1.0;
     let suavidade = 0.08;
-    estado.r = lerp(estado.r, alvo.r, suavidade);
-    estado.g = lerp(estado.g, alvo.g, suavidade);
-    estado.b = lerp(estado.b, alvo.b, suavidade);
+    estado.r = lerp(estado.r, alvo.r * brilho, suavidade);
+    estado.g = lerp(estado.g, alvo.g * brilho, suavidade);
+    estado.b = lerp(estado.b, alvo.b * brilho, suavidade);
     estado.tamanhoPupila = lerp(estado.tamanhoPupila, alvo.tamanhoPupila, suavidade);
     estado.deformacao = lerp(estado.deformacao, alvo.deformacao, suavidade);
     estado.velocidadeMovimento = lerp(estado.velocidadeMovimento, alvo.velocidadeMovimento, suavidade);
@@ -591,7 +607,7 @@ function atualizarPosicaoPupila() {
 
 function calcularAreaOlho() {
     if (painelAberto) {
-        let disponivelW = width - (width - LARGURA_PAINEL);
+        let disponivelW = LARGURA_PAINEL;
         let disponivel = min(disponivelW, height);
         let px = disponivel / colunas;
         let ox = width - disponivelW / 2 - (colunas * px) / 2;

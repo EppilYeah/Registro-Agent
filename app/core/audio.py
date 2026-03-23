@@ -36,6 +36,12 @@ EMOCOES = {
 
 BUFFER_TTS_BYTES = 32768
 
+WHISPER_PROMPT = (
+    "Assistente de voz em português brasileiro informal. "
+    "O usuário fala de forma casual, com gírias, abreviações e linguagem coloquial. "
+    "Exemplos: cara, mano, abre, fecha, muda, aumenta, diminui, tá, né, pô, oxe, véi."
+)
+
 
 class AudioHandler:
     def __init__(self):
@@ -88,7 +94,7 @@ class AudioHandler:
             self.rec_vosk = None
 
         try:
-            self.whisper = WhisperModel("tiny", device="cpu", compute_type="int8")
+            self.whisper = WhisperModel("base", device="cpu", compute_type="int8")
             print("[AUDIO] Whisper carregado.")
         except Exception as e:
             self.whisper = None
@@ -109,48 +115,66 @@ class AudioHandler:
         except:
             return None
 
+    def _abrir_stream_vad_dedicado(self):
+        try:
+            stream = self.pa.open(format=pyaudio.paInt16, channels=1, rate=CONF["rate"],
+                                  input=True, frames_per_buffer=CONF["vad_chunk"])
+            stream.start_stream()
+            return stream
+        except:
+            return None
+
     def _efeitos_analogicos(self, audio, sr):
         np.multiply(audio, 0.98 + 0.02 * np.sin(
             2 * np.pi * 0.1 * np.arange(len(audio), dtype=np.float32) / sr), out=audio)
         processado = self.board(audio, sr)
         return (processado * 32767).astype(np.int16).tobytes()
 
-    def _monitorar_vad_thread(self):
+    def _monitorar_vad_thread(self, stream_dedicado):
         voz_consecutiva = 0
         buf_vad = np.empty(CONF["vad_chunk"], dtype=np.float32)
+
         while self.falando and not self.interrompido:
-            if self.vad_model and self.stream_vad:
-                if self.stream_vad.is_stopped():
+            if not self.vad_model or not stream_dedicado:
+                time.sleep(0.02)
+                continue
+            if not settings.get("vad_ativo"):
+                time.sleep(0.05)
+                continue
+            try:
+                if stream_dedicado.is_stopped():
                     time.sleep(0.02)
                     continue
-                if not settings.get("vad_ativo"):
-                    time.sleep(0.05)
-                    continue
-                try:
-                    raw = self.stream_vad.read(CONF["vad_chunk"], exception_on_overflow=False)
-                    np.copyto(buf_vad, np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0)
+                raw = stream_dedicado.read(CONF["vad_chunk"], exception_on_overflow=False)
+                np.copyto(buf_vad, np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0)
 
-                    energia = np.sqrt(np.mean(buf_vad ** 2))
+                energia = np.sqrt(np.mean(buf_vad ** 2))
 
-                    with torch.no_grad():
-                        tensor = torch.from_numpy(buf_vad)
-                        conf = self.vad_model(tensor, 16000).item()
-                        del tensor
+                with torch.no_grad():
+                    tensor = torch.from_numpy(buf_vad)
+                    conf = self.vad_model(tensor, 16000).item()
+                    del tensor
 
-                    threshold = settings.get("vad_threshold")
-                    energia_min = settings.get("vad_energia")
-                    consecutivo_max = settings.get("vad_consecutivo")
+                threshold = settings.get("vad_threshold")
+                energia_min = settings.get("vad_energia")
+                consecutivo_max = settings.get("vad_consecutivo")
 
-                    if conf > threshold and energia > energia_min:
-                        voz_consecutiva += 1
-                    else:
-                        voz_consecutiva = max(0, voz_consecutiva - 1)
+                if conf > threshold and energia > energia_min:
+                    voz_consecutiva += 1
+                else:
+                    voz_consecutiva = max(0, voz_consecutiva - 1)
 
-                    if voz_consecutiva >= consecutivo_max:
-                        print("[MIRA] Interrupção detectada.")
-                        self.interrompido = True
-                except:
-                    time.sleep(0.02)
+                if voz_consecutiva >= consecutivo_max:
+                    print("[MIRA] Interrupção detectada")
+                    self.interrompido = True
+            except:
+                time.sleep(0.02)
+
+        try:
+            stream_dedicado.stop_stream()
+            stream_dedicado.close()
+        except:
+            pass
 
     def _processar_chunk(self, raw_bytes):
         buf = io.BytesIO(raw_bytes)
@@ -165,7 +189,12 @@ class AudioHandler:
 
         self.falando, self.interrompido = True, False
 
-        thread_vad = threading.Thread(target=self._monitorar_vad_thread, daemon=True)
+        stream_vad_dedicado = self._abrir_stream_vad_dedicado()
+        thread_vad = threading.Thread(
+            target=self._monitorar_vad_thread,
+            args=(stream_vad_dedicado,),
+            daemon=True
+        )
         thread_vad.start()
 
         out_stream_ref = [None]
@@ -216,6 +245,14 @@ class AudioHandler:
         self.falando = False
         return self.interrompido
 
+    async def _prequecer_tts(self):
+        try:
+            comunicar = edge_tts.Communicate(" ", CONF["voice"])
+            async for _ in comunicar.stream():
+                break
+        except:
+            pass
+
     def falar(self, texto, emocao='neutro'):
         if not texto:
             return False
@@ -238,6 +275,9 @@ class AudioHandler:
         future = asyncio.run_coroutine_threadsafe(_executar(), self._loop)
         return future.result()
 
+    def prequecer(self):
+        asyncio.run_coroutine_threadsafe(self._prequecer_tts(), self._loop)
+
     def preparar_ouvir(self):
         if self.stream_vad and not self.stream_vad.is_stopped():
             self.stream_vad.stop_stream()
@@ -245,7 +285,7 @@ class AudioHandler:
     def ouvir_wake_word(self):
         if self.stream_vad.is_stopped():
             self.stream_vad.start_stream()
-        print("[REGISTRO] Aguardando Wake Word...")
+        print("[REGISTRO] Aguardando Wake Word")
         while True:
             try:
                 data = self.stream_vad.read(4000, exception_on_overflow=False)
@@ -264,7 +304,7 @@ class AudioHandler:
         if self.stream_vad and not self.stream_vad.is_stopped():
             self.stream_vad.stop_stream()
         self.rec_sr.energy_threshold = settings.get("energia_microfone")
-        print("[REGISTRO] Ouvindo comando...")
+        print("[REGISTRO] Ouvindo comando")
         try:
             with sr.Microphone() as source:
                 audio_data = self.rec_sr.listen(source, timeout=5, phrase_time_limit=15)
@@ -273,9 +313,18 @@ class AudioHandler:
                 try:
                     raw = audio_data.get_raw_data(convert_rate=16000, convert_width=2)
                     audio_np = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
-                    segments, _ = self.whisper.transcribe(audio_np, language="pt")
+                    segments, _ = self.whisper.transcribe(
+                        audio_np,
+                        language="pt",
+                        beam_size=5,
+                        initial_prompt=WHISPER_PROMPT,
+                        vad_filter=False,
+                        temperature=0.0,
+                        condition_on_previous_text=False,
+                    )
                     texto = " ".join(s.text for s in segments).strip()
                     if texto:
+                        print(f"[WHISPER] {texto}")
                         return texto
                 except Exception as e:
                     print(f"[WHISPER] Falha, usando Google: {e}")

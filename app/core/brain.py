@@ -2,18 +2,23 @@ import json
 import os
 import re
 import time
+import math
+import random
+import threading
 import traceback
 import sys
 import config
-from datetime import datetime
+from datetime import datetime, date
 
 from google import genai
 from google.genai import types
+
 
 class Brain:
     def __init__(self):
         _raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.caminho_memoria = os.path.join(_raiz, "data", "brain.jsonl")
+        self.caminho_perfil = os.path.join(_raiz, "data", "perfil.json")
         self.modelo_nome = ""
         self.contador_requisicoes = 0
         self.chamadas_ultimo_minuto = []
@@ -25,12 +30,18 @@ class Brain:
         self.indice_chave_atual = 0
 
         self._memoria_cache = self._carregar_memoria_disco()
+        self._perfil = self._carregar_perfil()
 
         self._log_chaves()
         self._configurar_api_key()
 
         self.chat = self._carregar_modelo_seguro()
         self.sistema = None
+
+        self._callback_espontaneo = None
+        self._thread_espontaneo = None
+        self._ultimo_espontaneo = 0
+        self._ultima_interacao = time.time()
 
     def _log_chaves(self):
         print(f"\n{'='*60}\nCHAVES: {len(self.chaves_disponiveis) or 'NENHUMA (única)'}")
@@ -78,15 +89,91 @@ class Brain:
             time.sleep(1)
         print("\nQuota resetada. \n")
 
+    def _ler_historico_completo(self):
+        try:
+            with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
+                linhas = f.readlines()
+            entradas = []
+            for linha in linhas:
+                try:
+                    entradas.append(json.loads(linha))
+                except:
+                    pass
+            return entradas
+        except:
+            return self._memoria_cache
+
+    def _eh_pedido_de_resumo(self, prompt):
+        palavras = {"resum", "histor", "sess", "conversa", "lembra", "falei", "falamos", "anterior", "passad", "ultimo", "ultim"}
+        p = prompt.lower()
+        return any(w in p for w in palavras)
+
+    def _resumo_historico_para_prompt(self):
+        entradas = self._ler_historico_completo()
+        if not entradas:
+            return "[HISTÓRICO] Nenhuma entrada encontrada."
+        linhas = []
+        for e in entradas:
+            data = e.get("data", "")[:16]
+            autor = e.get("autor", "?")
+            texto = e.get("texto", "")[:120]
+            linhas.append(f"[{data}] {autor}: {texto}")
+        bloco = "\n".join(linhas)
+        return f"[HISTÓRICO COMPLETO — {len(entradas)} entradas]\n{bloco}"
+
     def _carregar_memoria_disco(self):
         resultado = []
         try:
             with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
-                for linha in f.readlines()[-20:]:
+                for linha in f.readlines()[-100:]:
                     resultado.append(json.loads(linha))
         except:
             pass
         return resultado
+
+    def _carregar_perfil(self):
+        padrao = {
+            "pesos_emocao": {
+                "neutro": 0.60, "sarcasmo_tedio": 0.10, "irritado": 0.05,
+                "confuso": 0.08, "arrogante": 0.07, "desconfiado": 0.05, "feliz": 0.05
+            },
+            "espontaneo_hoje": 0,
+            "espontaneo_data": str(date.today()),
+            "interacoes_totais": 0,
+        }
+        try:
+            with open(self.caminho_perfil, 'r', encoding='utf-8') as f:
+                salvo = json.load(f)
+                padrao.update(salvo)
+        except:
+            pass
+        return padrao
+
+    def _salvar_perfil(self):
+        try:
+            os.makedirs(os.path.dirname(self.caminho_perfil), exist_ok=True)
+            with open(self.caminho_perfil, 'w', encoding='utf-8') as f:
+                json.dump(self._perfil, f, indent=2, ensure_ascii=False)
+        except:
+            pass
+
+    def _atualizar_perfil_emocao(self, emocao):
+        pesos = self._perfil["pesos_emocao"]
+        if emocao not in pesos:
+            return
+        for k in pesos:
+            pesos[k] = max(0.01, pesos[k] * 0.995)
+        pesos[emocao] = min(0.80, pesos[emocao] + 0.005)
+        total = sum(pesos.values())
+        for k in pesos:
+            pesos[k] /= total
+        self._perfil["interacoes_totais"] += 1
+        self._salvar_perfil()
+
+    def _perfil_para_prompt(self):
+        pesos = self._perfil["pesos_emocao"]
+        dominante = max(pesos, key=pesos.get)
+        return f"[PERFIL ADAPTATIVO] Emoção dominante histórica: {dominante} ({pesos[dominante]*100:.0f}%). Interações totais: {self._perfil['interacoes_totais']}."
 
     _TOOLS_NAO_PERSISTIR = {"finalizar_sofrimento", "abrir_configuracoes"}
 
@@ -101,20 +188,56 @@ class Brain:
         except:
             pass
         self._memoria_cache.append(entry)
-        if len(self._memoria_cache) > 20:
+        if len(self._memoria_cache) > 100:
             self._memoria_cache.pop(0)
 
-    def carregar_memoria(self):
+    def _calcular_relevancia(self, prompt, entrada):
+        palavras_prompt = set(re.findall(r'\w+', prompt.lower()))
+        palavras_entrada = set(re.findall(r'\w+', entrada.get("texto", "").lower()))
+        stopwords = {"o", "a", "os", "as", "um", "uma", "de", "da", "do", "em", "para", "com", "que", "e", "é", "não", "se", "me", "te"}
+        palavras_prompt -= stopwords
+        palavras_entrada -= stopwords
+        if not palavras_prompt or not palavras_entrada:
+            return 0.0
+        intersecao = palavras_prompt & palavras_entrada
+        return len(intersecao) / math.sqrt(len(palavras_prompt) * len(palavras_entrada))
+
+    def _selecionar_memorias_relevantes(self, prompt, n_recentes=5, n_relevantes=5):
+        recentes = self._memoria_cache[-n_recentes:]
+        antigas = self._memoria_cache[:-n_recentes] if len(self._memoria_cache) > n_recentes else []
+
+        scores = []
+        for entrada in antigas:
+            score = self._calcular_relevancia(prompt, entrada)
+            if score > 0.1:
+                scores.append((score, entrada))
+
+        scores.sort(key=lambda x: x[0], reverse=True)
+        relevantes = [e for _, e in scores[:n_relevantes]]
+
+        vistas = set(id(e) for e in recentes)
+        relevantes = [e for e in relevantes if id(e) not in vistas]
+
+        return relevantes + recentes
+
+    def carregar_memoria(self, prompt=None):
+        perfil_context = self._perfil_para_prompt()
         hist = [
-            types.Content(role="user", parts=[types.Part.from_text(text=config.PROMPT_PERSONALIDADE)]),
+            types.Content(role="user", parts=[types.Part.from_text(text=config.PROMPT_PERSONALIDADE + "\n\n" + perfil_context)]),
             types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Sistemas online."}')])
         ]
-        for d in self._memoria_cache[-20:]:
+
+        if prompt:
+            memorias = self._selecionar_memorias_relevantes(prompt)
+        else:
+            memorias = self._memoria_cache[-20:]
+
+        for d in memorias:
             role = "model" if d["autor"] == "REGISTRO" else "user"
             hist.append(types.Content(role=role, parts=[types.Part.from_text(text=d["texto"])]))
 
         hist.append(types.Content(role="user", parts=[types.Part.from_text(text="[SISTEMA] Nova sessão iniciada. NÃO repita ferramentas ou ações de sessões anteriores.")]))
-        hist.append(types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Nova sessão. Aguardando."}')]))
+        hist.append(types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Nova sessão. Aguardando."}}')]))
         return hist
 
     def _carregar_modelo_seguro(self, ignorar=None):
@@ -144,7 +267,6 @@ class Brain:
         for nome in config.LISTA_MODELOS:
             if nome in ignorar:
                 continue
-
             try:
                 print(f"[CONEXAO] {nome}...", end=" ")
                 chat = self.client.chats.create(
@@ -252,7 +374,6 @@ class Brain:
                     "NADA MAIS. SEM texto adicional, SEM explicações, SEM markdown."
                 )
                 txt_corrigido = correcao.text.replace("```json", "").replace("```", "").strip()
-
                 try:
                     return json.loads(txt_corrigido)
                 except:
@@ -276,7 +397,85 @@ class Brain:
             pass
         return None
 
+    def iniciar_comportamento_espontaneo(self, callback_falar):
+        self._callback_espontaneo = callback_falar
+        self._thread_espontaneo = threading.Thread(target=self._loop_espontaneo, daemon=True)
+        self._thread_espontaneo.start()
+
+    def _loop_espontaneo(self):
+        import settings as s
+        while True:
+            time.sleep(60)
+            try:
+                if not s.get("comportamento_espontaneo"):
+                    continue
+
+                agora = time.time()
+                cooldown = s.get("espontaneo_cooldown_min") * 60
+                limite = s.get("espontaneo_limite_diario")
+
+                if str(date.today()) != self._perfil.get("espontaneo_data"):
+                    self._perfil["espontaneo_hoje"] = 0
+                    self._perfil["espontaneo_data"] = str(date.today())
+                    self._salvar_perfil()
+
+                if self._perfil["espontaneo_hoje"] >= limite:
+                    continue
+
+                if agora - self._ultimo_espontaneo < cooldown:
+                    continue
+
+                inativo_ha = agora - self._ultima_interacao
+                if inativo_ha < 300:
+                    continue
+
+                prob_base = 0.05
+                prob = prob_base * min(1.0, inativo_ha / 3600)
+
+                if random.random() > prob:
+                    continue
+
+                self._disparar_espontaneo()
+
+            except Exception as e:
+                print(f"[ESPONTANEO] Erro: {e}")
+
+    def _disparar_espontaneo(self):
+        try:
+            hora = datetime.now().hour
+            contexto_hora = "noite" if hora >= 22 or hora < 6 else "tarde" if hora >= 18 else "dia"
+            inativo_min = int((time.time() - self._ultima_interacao) / 60)
+
+            ultimas = [d["texto"] for d in self._memoria_cache[-5:] if d.get("autor") != "REGISTRO"]
+            contexto_memoria = " | ".join(ultimas[-2:]) if ultimas else ""
+
+            prompt = (
+                f"Contexto: período do {contexto_hora}, usuário inativo há {inativo_min} minutos. "
+                f"Últimas interações do usuário: {contexto_memoria}. "
+                f"Gere UMA observação espontânea curta, no seu estilo REGISTRO. "
+                f"Pode ser sobre o horário, padrão observado, ou simplesmente uma presença. "
+                f"SEM JSON. Apenas o texto da fala. Máximo 15 palavras."
+            )
+
+            response = self.client.models.generate_content(
+                model=self.modelo_nome,
+                contents=prompt
+            )
+            texto = response.text.strip()
+            if texto and self._callback_espontaneo:
+                self._callback_espontaneo(texto, "neutro")
+                self._ultimo_espontaneo = time.time()
+                self._perfil["espontaneo_hoje"] = self._perfil.get("espontaneo_hoje", 0) + 1
+                self._salvar_perfil()
+        except Exception as e:
+            print(f"[ESPONTANEO] Falha ao disparar: {e}")
+
+    def marcar_interacao(self):
+        self._ultima_interacao = time.time()
+
     def processar_entrada(self, prompt, on_resposta=None, tentativa=0):
+        self.marcar_interacao()
+
         if tentativa >= 2:
             dados = {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas."}
             if on_resposta: on_resposta(dados)
@@ -288,6 +487,11 @@ class Brain:
             return dados
 
         self._verificar_rate_limit()
+
+        prompt_efetivo = prompt
+        if self._eh_pedido_de_resumo(prompt):
+            bloco = self._resumo_historico_para_prompt()
+            prompt_efetivo = f"{bloco}\n\nPedido do usuário: {prompt}"
 
         if tentativa == 0:
             self._registrar_memoria(prompt, "Luis")
@@ -301,7 +505,7 @@ class Brain:
             tem_function_call = False
 
             try:
-                stream = self.chat.send_message_stream(prompt)
+                stream = self.chat.send_message_stream(prompt_efetivo)
                 chunks = list(stream)
                 for chunk in chunks:
                     if hasattr(chunk, 'candidates') and chunk.candidates:
@@ -321,7 +525,7 @@ class Brain:
 
                 res_text = texto_acumulado
             except AttributeError:
-                res = self.chat.send_message(prompt)
+                res = self.chat.send_message(prompt_efetivo)
                 if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
                     print(f"[BRAIN] Bloqueio detectado. Limpando contexto.")
                     self.chat = self._carregar_modelo_seguro()
@@ -344,6 +548,9 @@ class Brain:
             dados = self._parsear_json(res_text)
             if not isinstance(dados, dict):
                 dados = {"emocao": "neutro", "texto_resposta": str(dados)}
+
+            emocao_final = dados.get("emocao", "neutro")
+            self._atualizar_perfil_emocao(emocao_final)
 
             if tentativa == 0:
                 self._registrar_memoria(dados.get("texto_resposta", ""), "REGISTRO")

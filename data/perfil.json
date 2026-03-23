@@ -1,0 +1,14 @@
+{
+  "pesos_emocao": {
+    "neutro": 0.6215143321267403,
+    "sarcasmo_tedio": 0.09229213460253867,
+    "irritado": 0.04367100480126934,
+    "confuso": 0.09404111214513594,
+    "arrogante": 0.06113940672177708,
+    "desconfiado": 0.04367100480126934,
+    "feliz": 0.04367100480126934
+  },
+  "espontaneo_hoje": 0,
+  "espontaneo_data": "2026-03-22",
+  "interacoes_totais": 27
+}

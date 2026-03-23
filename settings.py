@@ -13,6 +13,11 @@ _PADROES = {
     "energia_microfone": 300,
     "modelo": "gemini-2.5-flash",
     "modo_debug": False,
+    "comportamento_espontaneo": True,
+    "espontaneo_cooldown_min": 20,
+    "espontaneo_limite_diario": 3,
+    "modo_ambient_timeout_min": 5,
+    "dormindo_timeout_min": 15,
 }
 
 _cfg = {}

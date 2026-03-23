@@ -1,6 +1,6 @@
 {
   "vad_ativo": true,
-  "camera_ativa": true,
+  "camera_ativa": false,
   "vad_threshold": 0.88,
   "vad_energia": 0.08,
   "vad_consecutivo": 8,

@@ -15,6 +15,8 @@ settings.carregar()
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _JANELA = None
 _ui_pronta = threading.Event()
+_em_conversa = False
+_ultimo_acordar = time.time()
 
 def _js(codigo):
     try:
@@ -32,9 +34,11 @@ visao = VisionHandler(funcao_js=_js)
 sistema = Systemhandler(
     funcao_falar=audio.falar,
     funcao_gerar_texto=brain.gerar_texto_aleatorio,
-    funcao_js=_js
+    funcao_js=_js,
+    funcao_brain_client=brain.client
 )
 brain.sistema = sistema
+
 
 class API:
     def ui_pronta(self):
@@ -63,24 +67,66 @@ class API:
             _JANELA.resize(500, 500)
             _JANELA.move(100, 100)
 
+
+def _loop_idle():
+    global _ultimo_acordar
+    while True:
+        time.sleep(30)
+        if _em_conversa:
+            continue
+        try:
+            inativo = time.time() - _ultimo_acordar
+            ambient_timeout = settings.get("modo_ambient_timeout_min") * 60
+            dormindo_timeout = settings.get("dormindo_timeout_min") * 60
+
+            if inativo >= dormindo_timeout:
+                _js("window.jsAtualizarRosto('dormindo', false)")
+                if _JANELA:
+                    _JANELA.resize(80, 80)
+            elif inativo >= ambient_timeout:
+                _js("window.jsAtualizarRosto('dormindo', false)")
+                if _JANELA:
+                    _JANELA.resize(80, 80)
+        except:
+            pass
+
+
 def ciclo_principal():
-    global _JANELA
+    global _em_conversa, _ultimo_acordar
+
     _ui_pronta.wait()
 
     print("REGISTRO INICIADO")
     audio.falar("REGISTRO INICIADO", "neutro")
 
     visao.iniciar()
-
     _atualizar_rosto("neutro", False)
+
+    brain.iniciar_comportamento_espontaneo(
+        lambda texto, emocao: (
+            _atualizar_rosto(emocao, True),
+            audio.falar(texto, emocao),
+            _atualizar_rosto(emocao, False)
+        )
+    )
+
+    thread_idle = threading.Thread(target=_loop_idle, daemon=True)
+    thread_idle.start()
 
     while True:
         try:
             if audio.ouvir_wake_word():
+                _ultimo_acordar = time.time()
+                _em_conversa = True
+
                 try:
-                    _JANELA.show()
+                    _JANELA.restore()
+                    _JANELA.resize(500, 500)
+                    _JANELA.move(100, 100)
                 except:
                     pass
+
+                _atualizar_rosto("neutro", False)
 
                 modo_conversa = True
                 tentativas_silencio = 0
@@ -104,6 +150,7 @@ def ciclo_principal():
 
                         _atualizar_rosto("confuso", False)
                         audio.preparar_ouvir()
+                        audio.prequecer()
 
                         tts_iniciado = threading.Event()
                         tts_result = [False]
@@ -142,12 +189,16 @@ def ciclo_principal():
                             _atualizar_rosto("neutro", False)
                             modo_conversa = False
 
+                _em_conversa = False
+                _ultimo_acordar = time.time()
+
             time.sleep(0.1)
 
         except Exception as e:
             print(f"[ERRO CRÍTICO] {e}")
-            modo_conversa = False
+            _em_conversa = False
             time.sleep(1)
+
 
 if __name__ == "__main__":
     _JANELA = webview.create_window(

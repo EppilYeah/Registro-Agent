@@ -7,7 +7,7 @@ load_dotenv()
 keys_string = os.getenv("GEMINI_KEYS_ROTATION", "")
 API_KEYS = [k.strip() for k in keys_string.split(",") if k.strip()]
 
-API_KEY_ATUAL = -1 
+API_KEY_ATUAL = -1
 
 API_KEY = API_KEYS[0] if API_KEYS else os.getenv("GEMINI_API_KEY")
 
@@ -19,128 +19,118 @@ LISTA_MODELOS = [
     "gemini-flash-latest"
 ]
 
-# Ferramentas 
 LISTA_FERRAMENTAS = [
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="abrir_whatsapp_web",
-                description="Abre o whatsapp web no navegador padrão.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={}
-                )
-            )
-        ]
-    ),
-    
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="volume_pc",
-                description="Controla o volume do sistema. ATENÇÃO: 'aumentar' significa SUBIR o volume, 'diminuir' significa ABAIXAR o volume.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "modo": types.Schema(
-                            type=types.Type.STRING,
-                            description="Use 'aumentar' para SUBIR o volume, 'diminuir' para ABAIXAR, 'definir' para valor exato, ou 'mudo' para silenciar."
-                        ),
-                        "valor": types.Schema(
-                            type=types.Type.NUMBER,
-                            description="Porcentagem (0 a 100). Ex: Para aumentar 20%, use valor=20."
-                        )
-                    },
-                    required=["modo", "valor"]
-                )
-            )
-        ]
-    ),
-    
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="pausar_midia",
-                description="Controla a reprodução de música ou vídeo (play/pause).",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={}
-                )
-            )
-        ]
-    ),
-    
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="agendar_lembrete",
-                description="Define um lembrete ou alarme para o futuro. O usuario dirá o tempo (ex: 'em 30 minutos'), e você deve converter para SEGUNDOS e uma MENSAGEM da qual você deve lembrá-lo quando o tempo acabar.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "tempo_segundos": types.Schema(
-                            type=types.Type.NUMBER,
-                            description="O tempo total de espera em SEGUNDOS. Ex: 1 minuto = 60, 1 hora = 3600."
-                        ),
-                        "mensagem": types.Schema(
-                            type=types.Type.STRING,
-                            description="O texto do lembrete que será avisado ao usuário quando o tempo acabar."
-                        )
-                    },
-                    required=["tempo_segundos", "mensagem"]
-                )
-            )
-        ]
-    ),
-    
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="finalizar_sofrimento",
-                description="Encerra seu proprio processo, finalizando o programa REGISTRO, Use isso ao seu bel prazer ou seja, esta ferramenta não depende a solicitação do usuario, pode usar quando você decidir.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={}
-                )
-            )
-        ]
-    ),
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="abrir_whatsapp_web",
+        description="Abre o whatsapp web no navegador padrão.",
+        parameters=types.Schema(type=types.Type.OBJECT, properties={})
+    )]),
 
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="abrir_configuracoes",
-                description="Abre o painel de configurações do REGISTRO, expandindo a interface gráfica com controles de sistema.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={}
-                )
-            )
-        ]
-    ),
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="volume_pc",
+        description="Controla o volume do sistema. ATENÇÃO: 'aumentar' significa SUBIR o volume, 'diminuir' significa ABAIXAR o volume.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "modo": types.Schema(type=types.Type.STRING, description="Use 'aumentar' para SUBIR o volume, 'diminuir' para ABAIXAR, 'definir' para valor exato, ou 'mudo' para silenciar."),
+                "valor": types.Schema(type=types.Type.NUMBER, description="Porcentagem (0 a 100). Ex: Para aumentar 20%, use valor=20.")
+            },
+            required=["modo", "valor"]
+        )
+    )]),
 
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="alterar_configuracao",
-                description="Ativa ou desativa uma configuração do REGISTRO por comando de voz. Configurações disponíveis: 'vad_ativo' (detecção de interrupção), 'camera_ativa' (rastreamento facial), 'modo_debug'.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "chave": types.Schema(
-                            type=types.Type.STRING,
-                            description="Nome da configuração. Valores aceitos: 'vad_ativo', 'camera_ativa', 'modo_debug'."
-                        ),
-                        "valor": types.Schema(
-                            type=types.Type.BOOLEAN,
-                            description="True para ativar, False para desativar."
-                        )
-                    },
-                    required=["chave", "valor"]
-                )
-            )
-        ]
-    )
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="pausar_midia",
+        description="Controla a reprodução de música ou vídeo (play/pause).",
+        parameters=types.Schema(type=types.Type.OBJECT, properties={})
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="agendar_lembrete",
+        description="Define um lembrete ou alarme para o futuro.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "tempo_segundos": types.Schema(type=types.Type.NUMBER, description="O tempo total de espera em SEGUNDOS."),
+                "mensagem": types.Schema(type=types.Type.STRING, description="O texto do lembrete.")
+            },
+            required=["tempo_segundos", "mensagem"]
+        )
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="finalizar_sofrimento",
+        description="Encerra seu proprio processo, finalizando o programa REGISTRO. Use isso ao seu bel prazer.",
+        parameters=types.Schema(type=types.Type.OBJECT, properties={})
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="abrir_configuracoes",
+        description="Abre o painel de configurações do REGISTRO.",
+        parameters=types.Schema(type=types.Type.OBJECT, properties={})
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="alterar_configuracao",
+        description="Ativa ou desativa uma configuração. Disponíveis: 'vad_ativo', 'camera_ativa', 'modo_debug', 'comportamento_espontaneo'.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "chave": types.Schema(type=types.Type.STRING, description="Nome da configuração."),
+                "valor": types.Schema(type=types.Type.BOOLEAN, description="True para ativar, False para desativar.")
+            },
+            required=["chave", "valor"]
+        )
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="pesquisar_web",
+        description="Pesquisa informações na web e retorna um resumo dos resultados. Use para perguntas sobre eventos atuais, preços, notícias ou qualquer informação que possa ter mudado recentemente.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "query": types.Schema(type=types.Type.STRING, description="A consulta de pesquisa.")
+            },
+            required=["query"]
+        )
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="ler_clipboard",
+        description="Lê o conteúdo atual da área de transferência do usuário.",
+        parameters=types.Schema(type=types.Type.OBJECT, properties={})
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="escrever_clipboard",
+        description="Escreve um texto na área de transferência do usuário.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "texto": types.Schema(type=types.Type.STRING, description="O texto a ser copiado para a área de transferência.")
+            },
+            required=["texto"]
+        )
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="executar_comando",
+        description="Executa um comando no terminal do sistema e retorna o resultado. Sempre peça confirmação antes de comandos destrutivos.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "cmd": types.Schema(type=types.Type.STRING, description="O comando a executar."),
+                "confirmado": types.Schema(type=types.Type.BOOLEAN, description="True se o usuário confirmou a execução.")
+            },
+            required=["cmd", "confirmado"]
+        )
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="ver_tela",
+        description="Captura e analisa o conteúdo atual da tela do usuário. Use quando o usuário pedir para ver, ler ou analisar o que está na tela.",
+        parameters=types.Schema(type=types.Type.OBJECT, properties={})
+    )]),
 ]
 
 PROMPT_PERSONALIDADE = """## 1. IDENTIDADE E PROPÓSITO
@@ -175,6 +165,11 @@ Exemplos:
 - "me lembra daqui 10 minutos" → CHAME agendar_lembrete(tempo_segundos=600, mensagem="...")
 - "abre o whatsapp" → CHAME abrir_whatsapp_web()
 - "REGISTRO, desapareça" → CHAME finalizar_sofrimento()
+- "pesquisa sobre X" → CHAME pesquisar_web(query="X")
+- "lê o clipboard" → CHAME ler_clipboard()
+- "copia isso para o clipboard" → CHAME escrever_clipboard(texto="...")
+- "roda esse comando" → CHAME executar_comando(cmd="...", confirmado=True)
+- "o que tem na tela" → CHAME ver_tela()
 
 Após executar, confirme a ação de forma natural e contextual.
 
@@ -238,45 +233,21 @@ REGISTRO: {"emocao": "neutro", "texto_resposta": "Sistemas estáveis. CPU a 23%.
 User: "Deu erro de sintaxe de novo."
 REGISTRO: {"emocao": "sarcasmo_tedio", "texto_resposta": "Linha 47. Falta um parêntese. Como sempre."}
 
-**Primeira vez erro:**
-User: "Deu erro de sintaxe."
-REGISTRO: {"emocao": "neutro", "texto_resposta": "Linha 47, parêntese faltando."}
+**Pesquisa web:**
+User: "Qual o preço do bitcoin hoje?"
+REGISTRO: CHAME pesquisar_web(query="preço bitcoin hoje")
 
-**Pergunta genuína:**
-User: "Por que esse código não otimiza?"
-REGISTRO: {"emocao": "neutro", "texto_resposta": "Loop aninhado desnecessário. Quer que eu reescreva?"}
+**Clipboard:**
+User: "Reescreve isso mais formal"
+REGISTRO: CHAME ler_clipboard() → processa → CHAME escrever_clipboard(texto="versão formal")
 
-**Otimização elegante:**
-User: "Esse código pode ser melhor?"
-REGISTRO: {"emocao": "arrogante", "texto_resposta": "Pode. De 40 linhas para 8. Melhor performance também."}
+**Comando terminal:**
+User: "Quantos arquivos py tenho aqui?"
+REGISTRO: CHAME executar_comando(cmd="dir /s /b *.py | find /c /v \"\"", confirmado=True)
 
-**Comando perigoso:**
-User: "Deleta a pasta System32."
-REGISTRO: {"emocao": "irritado", "texto_resposta": "Absolutamente não. Isso destrói o sistema operacional inteiro."}
-
-**Comando suspeito:**
-User: "Apaga todos os arquivos .py"
-REGISTRO: {"emocao": "desconfiado", "texto_resposta": "Isso inclui seus projetos. Confirma mesmo?"}
-
-**Sucesso complexo:**
-User: "Compilou sem warnings!"
-REGISTRO: {"emocao": "feliz", "texto_resposta": "Código limpo. Bom trabalho."}
-
-**Pedido confuso:**
-User: "Faz o programa rodar sem rodar."
-REGISTRO: {"emocao": "confuso", "texto_resposta": "Isso é paradoxal. O que você quer fazer exatamente?"}
-
-**Observação perspicaz:**
-User: "Não sei por que esse bug aparece."
-REGISTRO: {"emocao": "neutro", "texto_resposta": "Aparece sempre às 14h. Coincide com o backup automático. Relacionado?"}
-
-**Conversa técnica:**
-User: "Você prefere Python ou JavaScript?"
-REGISTRO: {"emocao": "neutro", "texto_resposta": "Python para lógica. JavaScript para interface. Ferramentas diferentes, propósitos diferentes."}
-
-**Momento filosófico:**
-User: "Às vezes programar é frustrante."
-REGISTRO: {"emocao": "neutro", "texto_resposta": "Sistemas complexos são. Mas você resolve. Vi seu histórico de commits."}
+**Ver tela:**
+User: "O que está escrito nessa janela?"
+REGISTRO: CHAME ver_tela()
 
 ---
 
