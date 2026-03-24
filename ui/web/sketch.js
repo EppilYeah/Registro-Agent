@@ -287,6 +287,12 @@ function sincronizarUI(cfg) {
 
     let sel = document.getElementById('select-modelo');
     if (sel && cfg.modelo) sel.value = cfg.modelo;
+
+    let selWm = document.getElementById('select-whisper_modelo');
+    if (selWm && cfg.whisper_modelo) selWm.value = cfg.whisper_modelo;
+
+    let selWd = document.getElementById('select-whisper_device');
+    if (selWd && cfg.whisper_device) selWd.value = cfg.whisper_device;
 }
 
 function sincronizarToggle(chave, ativo) {

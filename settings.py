@@ -18,6 +18,8 @@ _PADROES = {
     "espontaneo_limite_diario": 3,
     "modo_ambient_timeout_min": 5,
     "dormindo_timeout_min": 15,
+    "whisper_modelo": "base",
+    "whisper_device": "cpu",
 }
 
 _cfg = {}

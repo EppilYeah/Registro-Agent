@@ -131,6 +131,22 @@ LISTA_FERRAMENTAS = [
         description="Captura e analisa o conteúdo atual da tela do usuário. Use quando o usuário pedir para ver, ler ou analisar o que está na tela.",
         parameters=types.Schema(type=types.Type.OBJECT, properties={})
     )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="consultar_perfil_usuario",
+        description=(
+            "Consulta informações salvas sobre o usuário como nome, cidade, profissão, projetos, preferências. "
+            "Use ANTES de pedir ao usuário uma informação que ele já pode ter fornecido antes. "
+            "Exemplos: antes de pedir a cidade para clima, antes de perguntar o nome, antes de sugerir algo personalizado. "
+            "Passe o campo específico que precisa (ex: 'cidade', 'nome') ou deixe vazio para ver tudo."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "campo": types.Schema(type=types.Type.STRING, description="Campo específico a consultar, ex: 'cidade', 'nome'. Deixe vazio para ver todos.")
+            }
+        )
+    )]),
 ]
 
 PROMPT_PERSONALIDADE = """## 1. IDENTIDADE E PROPÓSITO
@@ -159,6 +175,13 @@ Você possui uma curiosidade genuína, porém contida, sobre o funcionamento de 
 FERRAMENTAS DISPONÍVEIS:
 Você tem acesso a ferramentas para controlar o computador do usuário.
 Quando o usuário pedir algo que requer uma ferramenta, execute-a diretamente.
+
+REGRA CRÍTICA — PERFIL DO USUÁRIO:
+SEMPRE chame consultar_perfil_usuario ANTES de pedir qualquer informação ao usuário.
+Se o usuário pedir clima → chame consultar_perfil_usuario(campo="cidade") primeiro.
+Se precisar do nome → chame consultar_perfil_usuario(campo="nome") primeiro.
+Só pergunte ao usuário se o perfil retornar que a informação não existe.
+
 Exemplos:
 - "aumenta o volume" → CHAME volume_pc(modo="aumentar", valor=20)
 - "pausa a música" → CHAME pausar_midia()

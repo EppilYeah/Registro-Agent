@@ -28,7 +28,14 @@ def _js(codigo):
 def _atualizar_rosto(emocao, falando):
     _js(f"window.jsAtualizarRosto('{emocao}', {'true' if falando else 'false'})")
 
-audio = AudioHandler()
+def _contexto_historico():
+    try:
+        ultimas = [d["texto"] for d in brain._memoria_cache[-4:] if d.get("autor") != "REGISTRO"]
+        return " ".join(ultimas[-3:])
+    except:
+        return ""
+
+audio = AudioHandler(funcao_contexto_historico=_contexto_historico)
 brain = Brain()
 visao = VisionHandler(funcao_js=_js)
 sistema = Systemhandler(
@@ -46,6 +53,8 @@ class API:
 
     def atualizar_setting(self, chave, valor):
         settings.set(chave, valor)
+        if chave in ("whisper_modelo", "whisper_device"):
+            threading.Thread(target=audio.recarregar_whisper, daemon=True).start()
 
     def obter_settings(self):
         return settings.todos()
@@ -69,22 +78,21 @@ class API:
 
 
 def _loop_idle():
-    global _ultimo_acordar
     while True:
         time.sleep(30)
         if _em_conversa:
             continue
         try:
             inativo = time.time() - _ultimo_acordar
-            ambient_timeout = settings.get("modo_ambient_timeout_min") * 60
             dormindo_timeout = settings.get("dormindo_timeout_min") * 60
+            ambient_timeout = settings.get("modo_ambient_timeout_min") * 60
 
             if inativo >= dormindo_timeout:
                 _js("window.jsAtualizarRosto('dormindo', false)")
                 if _JANELA:
                     _JANELA.resize(80, 80)
             elif inativo >= ambient_timeout:
-                _js("window.jsAtualizarRosto('dormindo', false)")
+                _js("window.jsAtualizarRosto('neutro', false)")
                 if _JANELA:
                     _JANELA.resize(80, 80)
         except:
@@ -139,11 +147,11 @@ def ciclo_principal():
                         comando_atual = audio.ouvir_comando()
 
                     if comando_atual:
-                        print(f"VOCÊ: {comando_atual}")
+                        print(f"VOCE: {comando_atual}")
                         tentativas_silencio = 0
 
                         if any(x in comando_atual.lower() for x in ["tchau", "desligar", "dormir"]):
-                            audio.falar("Até logo.", "neutro")
+                            audio.falar("Ate logo.", "neutro")
                             modo_conversa = False
                             _atualizar_rosto("neutro", False)
                             break
@@ -184,18 +192,20 @@ def ciclo_principal():
 
                     else:
                         tentativas_silencio += 1
-                        print(f"SILÊNCIO {tentativas_silencio}/2")
+                        print(f"SILENCIO {tentativas_silencio}/2")
                         if tentativas_silencio >= 2:
                             _atualizar_rosto("neutro", False)
                             modo_conversa = False
 
                 _em_conversa = False
                 _ultimo_acordar = time.time()
+                brain.flush_perfil()
+                threading.Thread(target=brain.atualizar_dicionario_usuario, daemon=True).start()
 
             time.sleep(0.1)
 
         except Exception as e:
-            print(f"[ERRO CRÍTICO] {e}")
+            print(f"[ERRO CRITICO] {e}")
             _em_conversa = False
             time.sleep(1)
 

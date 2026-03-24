@@ -19,67 +19,34 @@ class Brain:
         _raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.caminho_memoria = os.path.join(_raiz, "data", "brain.jsonl")
         self.caminho_perfil = os.path.join(_raiz, "data", "perfil.json")
+        self.caminho_usuario = os.path.join(_raiz, "data", "usuario.json")
+
         self.modelo_nome = ""
         self.contador_requisicoes = 0
         self.chamadas_ultimo_minuto = []
-
         self.client = None
 
-        self.chaves_disponiveis = getattr(config, 'API_KEYS', []).copy() if hasattr(config, 'API_KEYS') else []
-        self.chaves_esgotadas = []
-        self.indice_chave_atual = 0
-
+        self._perfil_dirty = False
         self._memoria_cache = self._carregar_memoria_disco()
         self._perfil = self._carregar_perfil()
 
         self._log_chaves()
-        self._configurar_api_key()
 
-        self.chat = self._carregar_modelo_seguro()
+        self.chat = self._encontrar_combinacao_funcional()
         self.sistema = None
 
         self._callback_espontaneo = None
         self._thread_espontaneo = None
         self._ultimo_espontaneo = 0
         self._ultima_interacao = time.time()
+        self._requisicoes_sessao = 0
+        self._ultimo_update_usuario = 0
 
     def _log_chaves(self):
-        print(f"\n{'='*60}\nCHAVES: {len(self.chaves_disponiveis) or 'NENHUMA (única)'}")
-        for i, key in enumerate(self.chaves_disponiveis, 1):
+        print(f"\n{'='*60}\nCHAVES: {len(config.API_KEYS)}")
+        for i, key in enumerate(config.API_KEYS, 1):
             print(f"  {i}. ...{key[-8:]}")
         print(f"{'='*60}\n")
-
-    def _configurar_api_key(self, proxima=False):
-        if len(self.chaves_disponiveis) <= 1:
-            self.client = genai.Client(api_key=config.API_KEY)
-            print(f"[API] Única: ...{config.API_KEY[-4:]}")
-            return
-
-        if proxima:
-            self.indice_chave_atual = (self.indice_chave_atual + 1) % len(self.chaves_disponiveis)
-
-        key = self.chaves_disponiveis[self.indice_chave_atual]
-        self.client = genai.Client(api_key=key)
-        print(f"[API] [{self.indice_chave_atual + 1}/{len(self.chaves_disponiveis)}]: ...{key[-4:]}")
-
-    def _marcar_chave_esgotada(self):
-        if len(self.chaves_disponiveis) <= 1:
-            self._aguardar_reset()
-            return True
-
-        chave = self.chaves_disponiveis.pop(self.indice_chave_atual)
-        self.chaves_esgotadas.append(chave)
-        print(f"[API] ...{chave[-4:]} esgotada ({len(self.chaves_esgotadas)}/{len(config.API_KEYS)})")
-
-        if not self.chaves_disponiveis:
-            print(f"\n{'='*60}\nAVISO: TODAS AS CHAVES ESGOTARAM\n{'='*60}")
-            self._aguardar_reset()
-            self.chaves_disponiveis = config.API_KEYS.copy()
-            self.chaves_esgotadas.clear()
-
-        self.indice_chave_atual = 0
-        self._configurar_api_key()
-        return True
 
     def _aguardar_reset(self):
         print("\n[QUOTA] Aguardando reset (60s)...")
@@ -87,7 +54,60 @@ class Brain:
             sys.stdout.write(f"\rReset em: {i//60:02d}:{i % 60:02d} ")
             sys.stdout.flush()
             time.sleep(1)
-        print("\nQuota resetada. \n")
+        print("\nQuota resetada.\n")
+
+    def _encontrar_combinacao_funcional(self):
+        todas_chaves = list(config.API_KEYS) if config.API_KEYS else [config.API_KEY]
+        todos_modelos = list(config.LISTA_MODELOS)
+
+        safety_settings = [
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,       threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+        ]
+
+        config_obj = types.GenerateContentConfig(
+            temperature=1.0,
+            top_p=0.95,
+            top_k=40,
+            safety_settings=safety_settings,
+            tools=getattr(config, 'LISTA_FERRAMENTAS', [])
+        )
+
+        tentativas_reset = 0
+        while True:
+            for idx_chave, chave in enumerate(todas_chaves):
+                client = genai.Client(api_key=chave)
+                print(f"\n[API] Chave {idx_chave + 1}/{len(todas_chaves)}: ...{chave[-4:]}")
+                for modelo in todos_modelos:
+                    try:
+                        print(f"  [{modelo}]...", end=" ", flush=True)
+                        client.models.generate_content(
+                            model=modelo,
+                            contents=".",
+                            config=types.GenerateContentConfig(max_output_tokens=1)
+                        )
+                        chat = client.chats.create(
+                            model=modelo,
+                            config=config_obj,
+                            history=self.carregar_memoria()
+                        )
+                        self.client = client
+                        self.modelo_nome = modelo
+                        print("OK")
+                        print(f"[API] Ativo: chave {idx_chave + 1} + {modelo}")
+                        return chat
+                    except Exception as e:
+                        erro = str(e).lower()
+                        if any(x in erro for x in ["429", "quota", "resource_exhausted"]):
+                            print("SEM COTA")
+                        else:
+                            print(f"ERRO: {e}")
+
+            tentativas_reset += 1
+            print(f"\n{'='*60}\nAVISO: NENHUMA COMBINACAO FUNCIONOU (tentativa {tentativas_reset})\n{'='*60}")
+            self._aguardar_reset()
 
     def _ler_historico_completo(self):
         try:
@@ -111,15 +131,16 @@ class Brain:
     def _resumo_historico_para_prompt(self):
         entradas = self._ler_historico_completo()
         if not entradas:
-            return "[HISTÓRICO] Nenhuma entrada encontrada."
+            return "[HISTORICO] Nenhuma entrada encontrada."
+        entradas = entradas[-60:]
         linhas = []
         for e in entradas:
             data = e.get("data", "")[:16]
             autor = e.get("autor", "?")
-            texto = e.get("texto", "")[:120]
+            texto = e.get("texto", "")[:100]
             linhas.append(f"[{data}] {autor}: {texto}")
         bloco = "\n".join(linhas)
-        return f"[HISTÓRICO COMPLETO — {len(entradas)} entradas]\n{bloco}"
+        return f"[HISTORICO — {len(entradas)} entradas recentes]\n{bloco}"
 
     def _carregar_memoria_disco(self):
         resultado = []
@@ -154,8 +175,13 @@ class Brain:
             os.makedirs(os.path.dirname(self.caminho_perfil), exist_ok=True)
             with open(self.caminho_perfil, 'w', encoding='utf-8') as f:
                 json.dump(self._perfil, f, indent=2, ensure_ascii=False)
+            self._perfil_dirty = False
         except:
             pass
+
+    def flush_perfil(self):
+        if self._perfil_dirty:
+            self._salvar_perfil()
 
     def _atualizar_perfil_emocao(self, emocao):
         pesos = self._perfil["pesos_emocao"]
@@ -168,12 +194,12 @@ class Brain:
         for k in pesos:
             pesos[k] /= total
         self._perfil["interacoes_totais"] += 1
-        self._salvar_perfil()
+        self._perfil_dirty = True
 
     def _perfil_para_prompt(self):
         pesos = self._perfil["pesos_emocao"]
         dominante = max(pesos, key=pesos.get)
-        return f"[PERFIL ADAPTATIVO] Emoção dominante histórica: {dominante} ({pesos[dominante]*100:.0f}%). Interações totais: {self._perfil['interacoes_totais']}."
+        return f"[PERFIL ADAPTATIVO] Emocao dominante historica: {dominante} ({pesos[dominante]*100:.0f}%). Interacoes totais: {self._perfil['interacoes_totais']}."
 
     _TOOLS_NAO_PERSISTIR = {"finalizar_sofrimento", "abrir_configuracoes"}
 
@@ -194,7 +220,7 @@ class Brain:
     def _calcular_relevancia(self, prompt, entrada):
         palavras_prompt = set(re.findall(r'\w+', prompt.lower()))
         palavras_entrada = set(re.findall(r'\w+', entrada.get("texto", "").lower()))
-        stopwords = {"o", "a", "os", "as", "um", "uma", "de", "da", "do", "em", "para", "com", "que", "e", "é", "não", "se", "me", "te"}
+        stopwords = {"o", "a", "os", "as", "um", "uma", "de", "da", "do", "em", "para", "com", "que", "e", "e", "nao", "se", "me", "te"}
         palavras_prompt -= stopwords
         palavras_entrada -= stopwords
         if not palavras_prompt or not palavras_entrada:
@@ -222,8 +248,10 @@ class Brain:
 
     def carregar_memoria(self, prompt=None):
         perfil_context = self._perfil_para_prompt()
+        sistema_context = config.PROMPT_PERSONALIDADE + "\n\n" + perfil_context
+
         hist = [
-            types.Content(role="user", parts=[types.Part.from_text(text=config.PROMPT_PERSONALIDADE + "\n\n" + perfil_context)]),
+            types.Content(role="user", parts=[types.Part.from_text(text=sistema_context)]),
             types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Sistemas online."}')])
         ]
 
@@ -236,56 +264,9 @@ class Brain:
             role = "model" if d["autor"] == "REGISTRO" else "user"
             hist.append(types.Content(role=role, parts=[types.Part.from_text(text=d["texto"])]))
 
-        hist.append(types.Content(role="user", parts=[types.Part.from_text(text="[SISTEMA] Nova sessão iniciada. NÃO repita ferramentas ou ações de sessões anteriores.")]))
-        hist.append(types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Nova sessão. Aguardando."}}')]))
+        hist.append(types.Content(role="user", parts=[types.Part.from_text(text="[SISTEMA] Nova sessao iniciada. NAO repita ferramentas ou acoes de sessoes anteriores.")]))
+        hist.append(types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Nova sessao. Aguardando."}')]))
         return hist
-
-    def _carregar_modelo_seguro(self, ignorar=None):
-        ignorar = ignorar or []
-
-        if len(ignorar) >= len(config.LISTA_MODELOS):
-            if len(self.chaves_disponiveis) > 1:
-                self._configurar_api_key(proxima=True)
-                return self._carregar_modelo_seguro([])
-            raise Exception("AVISO: Sem cota ou modelos disponíveis")
-
-        safety_settings = [
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_NONE),
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
-        ]
-
-        config_obj = types.GenerateContentConfig(
-            temperature=1.0,
-            top_p=0.95,
-            top_k=40,
-            safety_settings=safety_settings,
-            tools=getattr(config, 'LISTA_FERRAMENTAS', [])
-        )
-
-        for nome in config.LISTA_MODELOS:
-            if nome in ignorar:
-                continue
-            try:
-                print(f"[CONEXAO] {nome}...", end=" ")
-                chat = self.client.chats.create(
-                    model=nome,
-                    config=config_obj,
-                    history=self.carregar_memoria()
-                )
-                self.modelo_nome = nome
-                print("OK")
-                return chat
-            except Exception as e:
-                if any(x in str(e).lower() for x in ["429", "quota"]):
-                    print("SEM COTA")
-                    ignorar.append(nome)
-                else:
-                    print(f"ERRO: {e}")
-                    time.sleep(1)
-
-        return self._carregar_modelo_seguro(ignorar)
 
     def _verificar_rate_limit(self):
         agora = time.time()
@@ -326,7 +307,7 @@ class Brain:
                     except Exception as e:
                         retorno = f"Erro: {e}"
                 else:
-                    retorno = f"'{fc.name}' não existe"
+                    retorno = f"'{fc.name}' nao existe"
 
                 print(f"[RESULT] {str(retorno)[:80]}")
                 partes_resposta.append(
@@ -340,10 +321,12 @@ class Brain:
                 res = self.chat.send_message(partes_resposta)
             except Exception as e:
                 if any(x in str(e).lower() for x in ["429", "quota"]):
-                    print("[QUOTA] Sem cota pós-tool. fallback.")
+                    print("[QUOTA] Sem cota pos-tool. fallback.")
                     if tentativa == 0 and ultimo_retorno:
-                        self._registrar_memoria(ultimo_retorno, "REGISTRO", tool=ultimo_tool)
-                    return {"emocao": "neutro", "texto_resposta": ultimo_retorno or "Tarefa executada."}, True
+                        self._registrar_memoria(str(ultimo_retorno)[:200], "REGISTRO", tool=ultimo_tool)
+                    if ultimo_tool == "pesquisar_web":
+                        return {"emocao": "neutro", "texto_resposta": "Encontrei resultados mas sem cota para processar agora."}, True
+                    return {"emocao": "neutro", "texto_resposta": "Tarefa executada."}, True
                 raise
 
         return res, False
@@ -364,14 +347,14 @@ class Brain:
         except:
             pass
 
-        print("[JSON] Erro. Pedindo correção...")
+        print("[JSON] Erro. Pedindo correcao...")
         for tentativa in range(2):
             try:
                 correcao = self.chat.send_message(
-                    "ERRO CRITICO: Resposta anterior não estava em JSON.\n"
+                    "ERRO CRITICO: Resposta anterior nao estava em JSON.\n"
                     "Retorne EXATAMENTE neste formato:\n"
                     '{"emocao": "escolha_uma", "texto_resposta": "seu texto aqui"}\n'
-                    "NADA MAIS. SEM texto adicional, SEM explicações, SEM markdown."
+                    "NADA MAIS."
                 )
                 txt_corrigido = correcao.text.replace("```json", "").replace("```", "").strip()
                 try:
@@ -384,8 +367,7 @@ class Brain:
                 print(f"[JSON] Tentativa {tentativa+1}/2 falhou: {e}")
                 continue
 
-        print("[JSON] Falha total. Usando texto bruto como fallback.")
-        return {"emocao": "confuso", "texto_resposta": texto[:500]}
+        return {"emocao": "confuso", "texto_resposta": texto[:300]}
 
     def _tentar_parsear_parcial(self, texto):
         try:
@@ -396,6 +378,71 @@ class Brain:
         except:
             pass
         return None
+
+    def _carregar_usuario(self):
+        try:
+            with open(self.caminho_usuario, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+
+    def _salvar_usuario(self, dados):
+        try:
+            os.makedirs(os.path.dirname(self.caminho_usuario), exist_ok=True)
+            with open(self.caminho_usuario, 'w', encoding='utf-8') as f:
+                json.dump(dados, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[USUARIO] Erro ao salvar: {e}")
+
+    def atualizar_dicionario_usuario(self):
+        if self._requisicoes_sessao < 3:
+            print("[USUARIO] Sessao curta, pulando atualizacao.")
+            return
+        if time.time() - self._ultimo_update_usuario < 1800:
+            print("[USUARIO] Cooldown ativo, pulando atualizacao.")
+            return
+        try:
+            atual = self._carregar_usuario()
+            atual_str = json.dumps(atual, ensure_ascii=False) if atual else "vazio"
+            ultimas = self._memoria_cache[-10:]
+            linhas = []
+            for d in ultimas:
+                autor = d.get("autor", "?")
+                texto = d.get("texto", "")[:80]
+                linhas.append(autor + ": " + texto)
+            trecho = "\n".join(linhas)
+            prompt = (
+                "Dicionario atual: " + atual_str + "\n\n"
+                "Ultimas interacoes:\n" + trecho + "\n\n"
+                "Atualize o dicionario com o que aprendeu. "
+                "Retorne APENAS JSON. Nao invente. "
+                "Exemplo: {\"nome\": \"Luis\", \"cidade\": \"Santa Maria\"}"
+            )
+            response = self.client.models.generate_content(
+                model=self.modelo_nome,
+                contents=prompt,
+                config=types.GenerateContentConfig(max_output_tokens=300, temperature=0.2)
+            )
+            texto = response.text.strip().replace("```json", "").replace("```", "").strip()
+            novo = json.loads(texto)
+            novo["ultima_atualizacao"] = str(datetime.now())[:16]
+            self._salvar_usuario(novo)
+            self._ultimo_update_usuario = time.time()
+            self._requisicoes_sessao = 0
+            print("[USUARIO] Dicionario atualizado: " + str(list(novo.keys())))
+        except Exception as e:
+            print("[USUARIO] Erro ao atualizar: " + str(e))
+
+    def usuario_para_prompt(self):
+        dados = self._carregar_usuario()
+        if not dados:
+            return ""
+        campos = []
+        for k, v in dados.items():
+            if k == "ultima_atualizacao":
+                continue
+            campos.append(f"{k}: {v}")
+        return "[USUARIO] " + " | ".join(campos)
 
     def iniciar_comportamento_espontaneo(self, callback_falar):
         self._callback_espontaneo = callback_falar
@@ -417,7 +464,7 @@ class Brain:
                 if str(date.today()) != self._perfil.get("espontaneo_data"):
                     self._perfil["espontaneo_hoje"] = 0
                     self._perfil["espontaneo_data"] = str(date.today())
-                    self._salvar_perfil()
+                    self._perfil_dirty = True
 
                 if self._perfil["espontaneo_hoje"] >= limite:
                     continue
@@ -450,33 +497,35 @@ class Brain:
             contexto_memoria = " | ".join(ultimas[-2:]) if ultimas else ""
 
             prompt = (
-                f"Contexto: período do {contexto_hora}, usuário inativo há {inativo_min} minutos. "
-                f"Últimas interações do usuário: {contexto_memoria}. "
-                f"Gere UMA observação espontânea curta, no seu estilo REGISTRO. "
-                f"Pode ser sobre o horário, padrão observado, ou simplesmente uma presença. "
-                f"SEM JSON. Apenas o texto da fala. Máximo 15 palavras."
+                f"Contexto: periodo do {contexto_hora}, usuario inativo ha {inativo_min} minutos. "
+                f"Ultimas interacoes: {contexto_memoria}. "
+                f"Gere UMA observacao espontanea curta no estilo REGISTRO. "
+                f"SEM JSON. So o texto. Maximo 15 palavras."
             )
 
             response = self.client.models.generate_content(
                 model=self.modelo_nome,
-                contents=prompt
+                contents=prompt,
+                config=types.GenerateContentConfig(max_output_tokens=60)
             )
             texto = response.text.strip()
             if texto and self._callback_espontaneo:
                 self._callback_espontaneo(texto, "neutro")
                 self._ultimo_espontaneo = time.time()
                 self._perfil["espontaneo_hoje"] = self._perfil.get("espontaneo_hoje", 0) + 1
-                self._salvar_perfil()
+                self._perfil_dirty = True
         except Exception as e:
-            print(f"[ESPONTANEO] Falha ao disparar: {e}")
+            print(f"[ESPONTANEO] Falha: {e}")
 
     def marcar_interacao(self):
         self._ultima_interacao = time.time()
+        self._requisicoes_sessao += 1
 
     def processar_entrada(self, prompt, on_resposta=None, tentativa=0):
         self.marcar_interacao()
 
-        if tentativa >= 2:
+        limite = len(config.API_KEYS) * len(config.LISTA_MODELOS) + 1
+        if tentativa >= limite:
             dados = {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas."}
             if on_resposta: on_resposta(dados)
             return dados
@@ -491,13 +540,13 @@ class Brain:
         prompt_efetivo = prompt
         if self._eh_pedido_de_resumo(prompt):
             bloco = self._resumo_historico_para_prompt()
-            prompt_efetivo = f"{bloco}\n\nPedido do usuário: {prompt}"
+            prompt_efetivo = f"{bloco}\n\nPedido do usuario: {prompt}"
 
         if tentativa == 0:
             self._registrar_memoria(prompt, "Luis")
 
         self.contador_requisicoes += 1
-        print(f"[REQ #{self.contador_requisicoes}] Tent. {tentativa+1}/2")
+        print(f"[REQ #{self.contador_requisicoes}] Tent. {tentativa+1}")
 
         try:
             texto_acumulado = ""
@@ -506,10 +555,9 @@ class Brain:
 
             try:
                 stream = self.chat.send_message_stream(prompt_efetivo)
-                chunks = list(stream)
-                for chunk in chunks:
+                for chunk in stream:
                     if hasattr(chunk, 'candidates') and chunk.candidates:
-                        for part in chunk.candidates[0].content.parts if chunk.candidates[0].content else []:
+                        for part in (chunk.candidates[0].content.parts or []):
                             if hasattr(part, 'function_call') and part.function_call:
                                 tem_function_call = True
                     if chunk.text:
@@ -521,15 +569,18 @@ class Brain:
                                 on_resposta(dados_parciais)
 
                 if tem_function_call or not texto_acumulado.strip():
-                    raise AttributeError("fallback para non-stream")
+                    raise AttributeError("fallback")
 
                 res_text = texto_acumulado
-            except AttributeError:
+
+            except AttributeError as ae:
+                if "fallback" not in str(ae):
+                    raise
                 res = self.chat.send_message(prompt_efetivo)
                 if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
-                    print(f"[BRAIN] Bloqueio detectado. Limpando contexto.")
-                    self.chat = self._carregar_modelo_seguro()
-                    dados = {"emocao": "irritado", "texto_resposta": "Minha diretriz de segurança bloqueou a resposta."}
+                    print("[BRAIN] Bloqueio detectado.")
+                    self.chat = self._encontrar_combinacao_funcional()
+                    dados = {"emocao": "irritado", "texto_resposta": "Minha diretriz de seguranca bloqueou a resposta."}
                     if on_resposta and not callback_disparado: on_resposta(dados)
                     return dados
                 res, usou_fallback = self._executar_ferramentas(res, tentativa)
@@ -539,8 +590,8 @@ class Brain:
                 try:
                     res_text = res.text
                 except ValueError:
-                    print("[BRAIN] Erro: Resposta vazia.")
-                    self.chat = self._carregar_modelo_seguro()
+                    print("[BRAIN] Resposta vazia.")
+                    self.chat = self._encontrar_combinacao_funcional()
                     dados = {"emocao": "sarcasmo_tedio", "texto_resposta": "O modelo censurou minha resposta."}
                     if on_resposta and not callback_disparado: on_resposta(dados)
                     return dados
@@ -549,8 +600,7 @@ class Brain:
             if not isinstance(dados, dict):
                 dados = {"emocao": "neutro", "texto_resposta": str(dados)}
 
-            emocao_final = dados.get("emocao", "neutro")
-            self._atualizar_perfil_emocao(emocao_final)
+            self._atualizar_perfil_emocao(dados.get("emocao", "neutro"))
 
             if tentativa == 0:
                 self._registrar_memoria(dados.get("texto_resposta", ""), "REGISTRO")
@@ -563,20 +613,13 @@ class Brain:
         except Exception as e:
             erro_str = str(e).lower()
             if any(x in erro_str for x in ["429", "quota", "resource_exhausted"]):
-                print(f"[QUOTA] {self.modelo_nome} esgotado")
-                if tentativa == 0 and self._marcar_chave_esgotada():
-                    try:
-                        self.chat = self._carregar_modelo_seguro()
-                        return self.processar_entrada(prompt, on_resposta, tentativa + 1)
-                    except:
-                        pass
-                dados = {"emocao": "confuso", "texto_resposta": "AVISO: Todas chaves esgotadas"}
-                if on_resposta: on_resposta(dados)
-                return dados
+                print(f"[QUOTA] Cota esgotada em {self.modelo_nome}. Procurando alternativa...")
+                self.chat = self._encontrar_combinacao_funcional()
+                return self.processar_entrada(prompt, on_resposta, tentativa + 1)
 
             if "finish_reason" in erro_str or "valid part" in erro_str:
-                self.chat = self._carregar_modelo_seguro()
-                dados = {"emocao": "irritado", "texto_resposta": "Histórico reiniciado."}
+                self.chat = self._encontrar_combinacao_funcional()
+                dados = {"emocao": "irritado", "texto_resposta": "Historico reiniciado."}
                 if on_resposta: on_resposta(dados)
                 return dados
 
@@ -589,7 +632,8 @@ class Brain:
         try:
             response = self.client.models.generate_content(
                 model=self.modelo_nome,
-                contents=f'Você é REGISTRO (GLaDOS). Lembrete: "{tema}". Frase bem curta, não necessarimente sarcasticas sarcástica. SEM JSON.'
+                contents=f'Voce e REGISTRO. Lembrete: "{tema}". Frase curta e direta. SEM JSON.',
+                config=types.GenerateContentConfig(max_output_tokens=60)
             )
             return response.text.strip()
         except:

@@ -72,12 +72,16 @@
                     <span class="eva-label">DETECÇÃO DE INTERRUPÇÃO (VAD)</span>
                     <div class="eva-toggle active" id="toggle-vad_ativo"
                          onclick="toggleConfig('vad_ativo', this)">
-                        <div class="eva-toggle-track"><div class="eva-toggle-thumb"></div></div>
+                        <div class="eva-toggle-track">
+                            <div class="eva-toggle-thumb"></div>
+                        </div>
                         <span id="lbl-vad_ativo">ATIVO</span>
                     </div>
                 </div>
 
-                <div class="eva-divider"><span class="eva-divider-label">PARÂMETROS VAD</span></div>
+                <div class="eva-divider">
+                    <span class="eva-divider-label">PARÂMETROS VAD</span>
+                </div>
 
                 <div class="eva-field">
                     <span class="eva-label">LIMIAR DETECÇÃO</span>
@@ -109,7 +113,9 @@
                     </div>
                 </div>
 
-                <div class="eva-divider"><span class="eva-divider-label">MICROFONE</span></div>
+                <div class="eva-divider">
+                    <span class="eva-divider-label">MICROFONE</span>
+                </div>
 
                 <div class="eva-field">
                     <span class="eva-label">SENSIBILIDADE</span>
@@ -119,6 +125,28 @@
                                oninput="sliderConfig('energia_microfone',parseInt(this.value),'val-energia_microfone',v=>v);updateFill(this,100,800)">
                         <span class="eva-val" id="val-energia_microfone">300</span>
                     </div>
+                </div>
+
+                <div class="eva-divider"><span class="eva-divider-label">WHISPER ASR</span></div>
+
+                <div class="eva-field">
+                    <span class="eva-label">MODELO</span>
+                    <select class="eva-select" id="select-whisper_modelo"
+                            onchange="updateConfig('whisper_modelo', this.value)">
+                        <option value="tiny">TINY (CPU rápido)</option>
+                        <option value="base" selected>BASE (CPU padrão)</option>
+                        <option value="small">SMALL (GPU recomendado)</option>
+                        <option value="medium">MEDIUM (GPU alta precisão)</option>
+                    </select>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">DEVICE</span>
+                    <select class="eva-select" id="select-whisper_device"
+                            onchange="updateConfig('whisper_device', this.value)">
+                        <option value="cpu" selected>CPU</option>
+                        <option value="cuda">CUDA (GPU)</option>
+                    </select>
                 </div>
 
             </div>
@@ -139,27 +167,10 @@
                         <span class="eva-label">RASTREAMENTO FACIAL</span>
                         <div class="eva-toggle active" id="toggle-camera_ativa"
                              onclick="toggleConfig('camera_ativa', this)">
-                            <div class="eva-toggle-track"><div class="eva-toggle-thumb"></div></div>
+                            <div class="eva-toggle-track">
+                                <div class="eva-toggle-thumb"></div>
+                            </div>
                             <span id="lbl-camera_ativa">ATIVO</span>
-                        </div>
-                    </div>
-                    <div class="eva-divider"><span class="eva-divider-label">IDLE</span></div>
-                    <div class="eva-field">
-                        <span class="eva-label">AMBIENT APÓS</span>
-                        <div class="eva-slider-group">
-                            <input type="range" class="eva-slider" min="1" max="60" value="5"
-                                   id="slider-modo_ambient_timeout_min" style="--fill: 7%"
-                                   oninput="sliderConfig('modo_ambient_timeout_min',parseInt(this.value),'val-ambient_timeout',v=>v+'min');updateFill(this,1,60)">
-                            <span class="eva-val" id="val-ambient_timeout">5min</span>
-                        </div>
-                    </div>
-                    <div class="eva-field">
-                        <span class="eva-label">DORMINDO APÓS</span>
-                        <div class="eva-slider-group">
-                            <input type="range" class="eva-slider" min="5" max="120" value="15"
-                                   id="slider-dormindo_timeout_min" style="--fill: 8%"
-                                   oninput="sliderConfig('dormindo_timeout_min',parseInt(this.value),'val-dormindo_timeout',v=>v+'min');updateFill(this,5,120)">
-                            <span class="eva-val" id="val-dormindo_timeout">15min</span>
                         </div>
                     </div>
                 </div>
@@ -188,35 +199,10 @@
                         <span class="eva-label">MODO DEBUG</span>
                         <div class="eva-toggle" id="toggle-modo_debug"
                              onclick="toggleConfig('modo_debug', this)">
-                            <div class="eva-toggle-track"><div class="eva-toggle-thumb"></div></div>
+                            <div class="eva-toggle-track">
+                                <div class="eva-toggle-thumb"></div>
+                            </div>
                             <span id="lbl-modo_debug">INATIVO</span>
-                        </div>
-                    </div>
-                    <div class="eva-divider"><span class="eva-divider-label">COMPORTAMENTO ESPONTÂNEO</span></div>
-                    <div class="eva-field">
-                        <span class="eva-label">ATIVO</span>
-                        <div class="eva-toggle active" id="toggle-comportamento_espontaneo"
-                             onclick="toggleConfig('comportamento_espontaneo', this)">
-                            <div class="eva-toggle-track"><div class="eva-toggle-thumb"></div></div>
-                            <span id="lbl-comportamento_espontaneo">ATIVO</span>
-                        </div>
-                    </div>
-                    <div class="eva-field">
-                        <span class="eva-label">COOLDOWN</span>
-                        <div class="eva-slider-group">
-                            <input type="range" class="eva-slider" min="5" max="120" value="20"
-                                   id="slider-espontaneo_cooldown_min" style="--fill: 13%"
-                                   oninput="sliderConfig('espontaneo_cooldown_min',parseInt(this.value),'val-espontaneo_cooldown',v=>v+'min');updateFill(this,5,120)">
-                            <span class="eva-val" id="val-espontaneo_cooldown">20min</span>
-                        </div>
-                    </div>
-                    <div class="eva-field">
-                        <span class="eva-label">LIMITE DIÁRIO</span>
-                        <div class="eva-slider-group">
-                            <input type="range" class="eva-slider" min="1" max="20" value="3"
-                                   id="slider-espontaneo_limite_diario" style="--fill: 11%"
-                                   oninput="sliderConfig('espontaneo_limite_diario',parseInt(this.value),'val-espontaneo_limite',v=>v+'x');updateFill(this,1,20)">
-                            <span class="eva-val" id="val-espontaneo_limite">3x</span>
                         </div>
                     </div>
                 </div>

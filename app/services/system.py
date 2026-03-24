@@ -49,6 +49,7 @@ class Systemhandler:
             "escrever_clipboard": self.escrever_clipboard,
             "executar_comando": self.executar_comando,
             "ver_tela": self.ver_tela,
+            "consultar_perfil_usuario": self.consultar_perfil_usuario,
         }
 
     def _inicializar_audio(self):
@@ -161,18 +162,18 @@ class Systemhandler:
 
     def pesquisar_web(self, query):
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             with DDGS() as ddgs:
-                resultados = list(ddgs.text(query, region="br-pt", max_results=4))
+                resultados = list(ddgs.text(query, region="br-pt", max_results=3))
             if not resultados:
                 return f"Sem resultados para '{query}'."
             partes = []
             for r in resultados:
-                titulo = r.get("title", "")
-                corpo = r.get("body", "")
+                corpo = r.get("body", "").strip()
                 if corpo:
-                    partes.append(f"{titulo}: {corpo[:200]}")
-            return " | ".join(partes) if partes else f"Sem resultados para '{query}'."
+                    primeira_frase = corpo.split(".")[0].strip()
+                    partes.append(primeira_frase[:120])
+            return "\n".join(partes) if partes else f"Sem resultados para '{query}'."
         except Exception as e:
             return f"Erro na pesquisa: {e}"
 
@@ -233,6 +234,25 @@ class Systemhandler:
             return response.text.strip()
         except Exception as e:
             return f"Erro ao capturar tela: {e}"
+
+    def consultar_perfil_usuario(self, campo=None):
+        try:
+            import os, json
+            raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            caminho = os.path.join(raiz, "data", "usuario.json")
+            with open(caminho, 'r', encoding='utf-8') as f:
+                dados = json.load(f)
+            if not campo:
+                resultado = {k: v for k, v in dados.items() if k != "ultima_atualizacao"}
+                return json.dumps(resultado, ensure_ascii=False)
+            valor = dados.get(campo)
+            if valor is None:
+                return f"Campo '{campo}' não encontrado no perfil."
+            return str(valor)
+        except FileNotFoundError:
+            return "Perfil do usuário ainda não existe."
+        except Exception as e:
+            return f"Erro ao consultar perfil: {e}"
 
     def finalizar_sofrimento(self):
         time.sleep(5)

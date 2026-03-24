@@ -4,7 +4,14 @@
   "vad_threshold": 0.88,
   "vad_energia": 0.08,
   "vad_consecutivo": 8,
-  "energia_microfone": 300,
+  "energia_microfone": 800,
   "modelo": "gemini-2.5-flash",
-  "modo_debug": false
+  "modo_debug": false,
+  "comportamento_espontaneo": true,
+  "espontaneo_cooldown_min": 20,
+  "espontaneo_limite_diario": 3,
+  "modo_ambient_timeout_min": 5,
+  "dormindo_timeout_min": 15,
+  "whisper_modelo": "small",
+  "whisper_device": "cuda"
 }
