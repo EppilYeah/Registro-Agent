@@ -4,7 +4,7 @@
   "vad_threshold": 0.88,
   "vad_energia": 0.08,
   "vad_consecutivo": 8,
-  "energia_microfone": 800,
+  "energia_microfone": 358,
   "modelo": "gemini-2.5-flash",
   "modo_debug": false,
   "comportamento_espontaneo": true,

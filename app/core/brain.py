@@ -18,6 +18,7 @@ class Brain:
     def __init__(self):
         _raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.caminho_memoria = os.path.join(_raiz, "data", "brain.jsonl")
+        self.caminho_resumos = os.path.join(_raiz, "data", "resumos.jsonl")
         self.caminho_perfil = os.path.join(_raiz, "data", "perfil.json")
         self.caminho_usuario = os.path.join(_raiz, "data", "usuario.json")
 
@@ -28,10 +29,12 @@ class Brain:
 
         self._perfil_dirty = False
         self._memoria_cache = self._carregar_memoria_disco()
+        self._resumos_cache = self._carregar_resumos_disco()
         self._perfil = self._carregar_perfil()
+        self._sessao_atual = []
+        self._ultimo_resumo_sessao = ""
 
         self._log_chaves()
-
         self.chat = self._encontrar_combinacao_funcional()
         self.sistema = None
 
@@ -109,6 +112,88 @@ class Brain:
             print(f"\n{'='*60}\nAVISO: NENHUMA COMBINACAO FUNCIONOU (tentativa {tentativas_reset})\n{'='*60}")
             self._aguardar_reset()
 
+    def _carregar_resumos_disco(self):
+        resultado = []
+        try:
+            with open(self.caminho_resumos, 'r', encoding='utf-8') as f:
+                for linha in f.readlines()[-15:]:
+                    resultado.append(json.loads(linha))
+        except:
+            pass
+        return resultado
+
+    def _carregar_memoria_disco(self):
+        resultado = []
+        try:
+            with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
+                for linha in f.readlines()[-30:]:
+                    resultado.append(json.loads(linha))
+        except:
+            pass
+        return resultado
+
+    def gerar_resumo_sessao(self):
+        if self._requisicoes_sessao < 2:
+            return
+        try:
+            linhas = []
+            for d in self._sessao_atual:
+                autor = d.get("autor", "?")
+                texto = d.get("texto", "")[:100]
+                linhas.append(f"{autor}: {texto}")
+            if not linhas:
+                return
+            trecho = "\n".join(linhas)
+            prompt = (
+                "Resume esta sessao em 1-2 frases concisas, mencionando os topicos principais "
+                "e qualquer informacao relevante sobre o usuario ou decisoes tomadas. "
+                "Seja factual, sem opinioes. Maximo 80 palavras.\n\n"
+                "Sessao:\n" + trecho
+            )
+            response = self.client.models.generate_content(
+                model=self.modelo_nome,
+                contents=prompt,
+                config=types.GenerateContentConfig(max_output_tokens=120, temperature=0.2)
+            )
+            resumo = response.text.strip()
+            self._ultimo_resumo_sessao = resumo
+
+            entry = {
+                "data": str(datetime.now())[:16],
+                "resumo": resumo,
+                "num_trocas": self._requisicoes_sessao
+            }
+            os.makedirs(os.path.dirname(self.caminho_resumos), exist_ok=True)
+            with open(self.caminho_resumos, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            self._resumos_cache.append(entry)
+            if len(self._resumos_cache) > 15:
+                self._resumos_cache.pop(0)
+            print(f"[RESUMO] Sessao registrada: {resumo[:60]}...")
+        except Exception as e:
+            print(f"[RESUMO] Erro: {e}")
+
+    def gerar_despedida(self):
+        try:
+            if not self._sessao_atual:
+                return "Ate logo."
+            trocas = [d["texto"][:80] for d in self._sessao_atual[-4:]]
+            contexto = " | ".join(trocas)
+            prompt = (
+                f"Contexto da sessao: {contexto}\n\n"
+                "Gere uma despedida curta e natural para o REGISTRO dizer ao usuario. "
+                "Deve referenciar algo especifico que aconteceu na sessao. "
+                "Estilo: direto, seco, profissional. Maximo 15 palavras. SEM JSON."
+            )
+            response = self.client.models.generate_content(
+                model=self.modelo_nome,
+                contents=prompt,
+                config=types.GenerateContentConfig(max_output_tokens=40, temperature=0.8)
+            )
+            return response.text.strip()
+        except:
+            return "Ate logo."
+
     def _ler_historico_completo(self):
         try:
             with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
@@ -130,27 +215,21 @@ class Brain:
 
     def _resumo_historico_para_prompt(self):
         entradas = self._ler_historico_completo()
-        if not entradas:
-            return "[HISTORICO] Nenhuma entrada encontrada."
-        entradas = entradas[-60:]
-        linhas = []
-        for e in entradas:
-            data = e.get("data", "")[:16]
-            autor = e.get("autor", "?")
-            texto = e.get("texto", "")[:100]
-            linhas.append(f"[{data}] {autor}: {texto}")
-        bloco = "\n".join(linhas)
-        return f"[HISTORICO — {len(entradas)} entradas recentes]\n{bloco}"
-
-    def _carregar_memoria_disco(self):
-        resultado = []
-        try:
-            with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
-                for linha in f.readlines()[-100:]:
-                    resultado.append(json.loads(linha))
-        except:
-            pass
-        return resultado
+        resumos = self._resumos_cache
+        partes = []
+        if resumos:
+            partes.append(f"[RESUMOS DE SESSOES ANTERIORES — {len(resumos)} sessoes]")
+            for r in resumos:
+                partes.append(f"[{r.get('data', '?')}] {r.get('resumo', '')}")
+        if entradas:
+            recentes = entradas[-20:]
+            partes.append(f"\n[MENSAGENS RECENTES — {len(recentes)} entradas]")
+            for e in recentes:
+                data = e.get("data", "")[:16]
+                autor = e.get("autor", "?")
+                texto = e.get("texto", "")[:100]
+                partes.append(f"[{data}] {autor}: {texto}")
+        return "\n".join(partes) if partes else "[HISTORICO] Vazio."
 
     def _carregar_perfil(self):
         padrao = {
@@ -161,6 +240,7 @@ class Brain:
             "espontaneo_hoje": 0,
             "espontaneo_data": str(date.today()),
             "interacoes_totais": 0,
+            "curiosidades_feitas": 0,
         }
         try:
             with open(self.caminho_perfil, 'r', encoding='utf-8') as f:
@@ -199,7 +279,8 @@ class Brain:
     def _perfil_para_prompt(self):
         pesos = self._perfil["pesos_emocao"]
         dominante = max(pesos, key=pesos.get)
-        return f"[PERFIL ADAPTATIVO] Emocao dominante historica: {dominante} ({pesos[dominante]*100:.0f}%). Interacoes totais: {self._perfil['interacoes_totais']}."
+        total = self._perfil["interacoes_totais"]
+        return f"[PERFIL] Emocao dominante: {dominante} ({pesos[dominante]*100:.0f}%). Interacoes totais: {total}."
 
     _TOOLS_NAO_PERSISTIR = {"finalizar_sofrimento", "abrir_configuracoes"}
 
@@ -214,13 +295,14 @@ class Brain:
         except:
             pass
         self._memoria_cache.append(entry)
+        self._sessao_atual.append(entry)
         if len(self._memoria_cache) > 100:
             self._memoria_cache.pop(0)
 
     def _calcular_relevancia(self, prompt, entrada):
         palavras_prompt = set(re.findall(r'\w+', prompt.lower()))
         palavras_entrada = set(re.findall(r'\w+', entrada.get("texto", "").lower()))
-        stopwords = {"o", "a", "os", "as", "um", "uma", "de", "da", "do", "em", "para", "com", "que", "e", "e", "nao", "se", "me", "te"}
+        stopwords = {"o", "a", "os", "as", "um", "uma", "de", "da", "do", "em", "para", "com", "que", "e", "nao", "se", "me", "te"}
         palavras_prompt -= stopwords
         palavras_entrada -= stopwords
         if not palavras_prompt or not palavras_entrada:
@@ -228,56 +310,35 @@ class Brain:
         intersecao = palavras_prompt & palavras_entrada
         return len(intersecao) / math.sqrt(len(palavras_prompt) * len(palavras_entrada))
 
-    def _selecionar_memorias_relevantes(self, prompt, n_recentes=5, n_relevantes=5):
-        recentes = self._memoria_cache[-n_recentes:]
-        antigas = self._memoria_cache[:-n_recentes] if len(self._memoria_cache) > n_recentes else []
-
-        scores = []
-        for entrada in antigas:
-            score = self._calcular_relevancia(prompt, entrada)
-            if score > 0.1:
-                scores.append((score, entrada))
-
-        scores.sort(key=lambda x: x[0], reverse=True)
-        relevantes = [e for _, e in scores[:n_relevantes]]
-
-        vistas = set(id(e) for e in recentes)
-        relevantes = [e for e in relevantes if id(e) not in vistas]
-
-        return relevantes + recentes
-
     def carregar_memoria(self, prompt=None):
         perfil_context = self._perfil_para_prompt()
+        usuario_context = self.usuario_para_prompt()
+
         sistema_context = config.PROMPT_PERSONALIDADE + "\n\n" + perfil_context
+        if usuario_context:
+            sistema_context += "\n" + usuario_context
 
         hist = [
             types.Content(role="user", parts=[types.Part.from_text(text=sistema_context)]),
             types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Sistemas online."}')])
         ]
 
-        if prompt:
-            memorias = self._selecionar_memorias_relevantes(prompt)
-        else:
-            memorias = self._memoria_cache[-20:]
-
-        for d in memorias:
+        for d in self._memoria_cache[-20:]:
             role = "model" if d["autor"] == "REGISTRO" else "user"
             hist.append(types.Content(role=role, parts=[types.Part.from_text(text=d["texto"])]))
 
-        hist.append(types.Content(role="user", parts=[types.Part.from_text(text="[SISTEMA] Nova sessao iniciada. NAO repita ferramentas ou acoes de sessoes anteriores.")]))
-        hist.append(types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Nova sessao. Aguardando."}')]))
+        hist.append(types.Content(role="user", parts=[types.Part.from_text(text="[SISTEMA] Nova sessao iniciada. NAO repita ferramentas de sessoes anteriores.")]))
+        hist.append(types.Content(role="model", parts=[types.Part.from_text(text='{"emocao": "neutro", "texto_resposta": "Nova sessao. Aguardando."}')])  )
         return hist
 
     def _verificar_rate_limit(self):
         agora = time.time()
         self.chamadas_ultimo_minuto = [t for t in self.chamadas_ultimo_minuto if agora - t < 60]
-
         if len(self.chamadas_ultimo_minuto) >= 12:
             espera = 61 - (agora - self.chamadas_ultimo_minuto[0])
-            print(f"AVISO: Rate limit {len(self.chamadas_ultimo_minuto)}/15. Aguardando {espera:.1f}s...")
+            print(f"AVISO: Rate limit. Aguardando {espera:.1f}s...")
             time.sleep(espera)
             self.chamadas_ultimo_minuto.clear()
-
         self.chamadas_ultimo_minuto.append(agora)
 
     def _executar_ferramentas(self, res, tentativa):
@@ -298,7 +359,6 @@ class Brain:
 
             for fc in function_calls:
                 print(f"[TOOL] {fc.name}({dict(fc.args)})")
-
                 if self.sistema and hasattr(self.sistema, fc.name):
                     try:
                         retorno = getattr(self.sistema, fc.name)(**dict(fc.args))
@@ -321,7 +381,7 @@ class Brain:
                 res = self.chat.send_message(partes_resposta)
             except Exception as e:
                 if any(x in str(e).lower() for x in ["429", "quota"]):
-                    print("[QUOTA] Sem cota pos-tool. fallback.")
+                    print("[QUOTA] Sem cota pos-tool.")
                     if tentativa == 0 and ultimo_retorno:
                         self._registrar_memoria(str(ultimo_retorno)[:200], "REGISTRO", tool=ultimo_tool)
                     if ultimo_tool == "pesquisar_web":
@@ -334,39 +394,32 @@ class Brain:
     def _parsear_json(self, texto):
         if not texto: return {"emocao": "confuso", "texto_resposta": "Sem resposta"}
         txt = texto.replace("```json", "").replace("```", "").strip()
-
         try:
             return json.loads(txt)
         except json.JSONDecodeError:
             pass
-
         try:
             match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt, re.DOTALL)
             if match:
                 return json.loads(match.group(0))
         except:
             pass
-
         print("[JSON] Erro. Pedindo correcao...")
         for tentativa in range(2):
             try:
                 correcao = self.chat.send_message(
-                    "ERRO CRITICO: Resposta anterior nao estava em JSON.\n"
-                    "Retorne EXATAMENTE neste formato:\n"
-                    '{"emocao": "escolha_uma", "texto_resposta": "seu texto aqui"}\n'
-                    "NADA MAIS."
+                    "ERRO: Retorne APENAS:\n"
+                    '{"emocao": "escolha_uma", "texto_resposta": "texto"}'
                 )
-                txt_corrigido = correcao.text.replace("```json", "").replace("```", "").strip()
+                txt_c = correcao.text.replace("```json", "").replace("```", "").strip()
                 try:
-                    return json.loads(txt_corrigido)
+                    return json.loads(txt_c)
                 except:
-                    match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_corrigido, re.DOTALL)
+                    match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_c, re.DOTALL)
                     if match:
                         return json.loads(match.group(0))
             except Exception as e:
                 print(f"[JSON] Tentativa {tentativa+1}/2 falhou: {e}")
-                continue
-
         return {"emocao": "confuso", "texto_resposta": texto[:300]}
 
     def _tentar_parsear_parcial(self, texto):
@@ -396,27 +449,19 @@ class Brain:
 
     def atualizar_dicionario_usuario(self):
         if self._requisicoes_sessao < 3:
-            print("[USUARIO] Sessao curta, pulando atualizacao.")
             return
         if time.time() - self._ultimo_update_usuario < 1800:
-            print("[USUARIO] Cooldown ativo, pulando atualizacao.")
             return
         try:
             atual = self._carregar_usuario()
             atual_str = json.dumps(atual, ensure_ascii=False) if atual else "vazio"
-            ultimas = self._memoria_cache[-10:]
-            linhas = []
-            for d in ultimas:
-                autor = d.get("autor", "?")
-                texto = d.get("texto", "")[:80]
-                linhas.append(autor + ": " + texto)
+            ultimas = self._sessao_atual[-10:]
+            linhas = [d.get("autor","?") + ": " + d.get("texto","")[:80] for d in ultimas]
             trecho = "\n".join(linhas)
             prompt = (
                 "Dicionario atual: " + atual_str + "\n\n"
-                "Ultimas interacoes:\n" + trecho + "\n\n"
-                "Atualize o dicionario com o que aprendeu. "
-                "Retorne APENAS JSON. Nao invente. "
-                "Exemplo: {\"nome\": \"Luis\", \"cidade\": \"Santa Maria\"}"
+                "Sessao recente:\n" + trecho + "\n\n"
+                "Atualize com informacoes novas aprendidas. Retorne APENAS JSON. Nao invente."
             )
             response = self.client.models.generate_content(
                 model=self.modelo_nome,
@@ -428,20 +473,15 @@ class Brain:
             novo["ultima_atualizacao"] = str(datetime.now())[:16]
             self._salvar_usuario(novo)
             self._ultimo_update_usuario = time.time()
-            self._requisicoes_sessao = 0
-            print("[USUARIO] Dicionario atualizado: " + str(list(novo.keys())))
+            print("[USUARIO] Atualizado: " + str(list(novo.keys())))
         except Exception as e:
-            print("[USUARIO] Erro ao atualizar: " + str(e))
+            print("[USUARIO] Erro: " + str(e))
 
     def usuario_para_prompt(self):
         dados = self._carregar_usuario()
         if not dados:
             return ""
-        campos = []
-        for k, v in dados.items():
-            if k == "ultima_atualizacao":
-                continue
-            campos.append(f"{k}: {v}")
+        campos = [f"{k}: {v}" for k, v in dados.items() if k != "ultima_atualizacao"]
         return "[USUARIO] " + " | ".join(campos)
 
     def iniciar_comportamento_espontaneo(self, callback_falar):
@@ -456,7 +496,6 @@ class Brain:
             try:
                 if not s.get("comportamento_espontaneo"):
                     continue
-
                 agora = time.time()
                 cooldown = s.get("espontaneo_cooldown_min") * 60
                 limite = s.get("espontaneo_limite_diario")
@@ -468,7 +507,6 @@ class Brain:
 
                 if self._perfil["espontaneo_hoje"] >= limite:
                     continue
-
                 if agora - self._ultimo_espontaneo < cooldown:
                     continue
 
@@ -476,14 +514,11 @@ class Brain:
                 if inativo_ha < 300:
                     continue
 
-                prob_base = 0.05
-                prob = prob_base * min(1.0, inativo_ha / 3600)
-
+                prob = 0.05 * min(1.0, inativo_ha / 3600)
                 if random.random() > prob:
                     continue
 
                 self._disparar_espontaneo()
-
             except Exception as e:
                 print(f"[ESPONTANEO] Erro: {e}")
 
@@ -493,14 +528,20 @@ class Brain:
             contexto_hora = "noite" if hora >= 22 or hora < 6 else "tarde" if hora >= 18 else "dia"
             inativo_min = int((time.time() - self._ultima_interacao) / 60)
 
-            ultimas = [d["texto"] for d in self._memoria_cache[-5:] if d.get("autor") != "REGISTRO"]
-            contexto_memoria = " | ".join(ultimas[-2:]) if ultimas else ""
+            resumos_str = ""
+            if self._resumos_cache:
+                ultimos = self._resumos_cache[-3:]
+                resumos_str = " | ".join(r.get("resumo", "") for r in ultimos)
+
+            usuario_str = self.usuario_para_prompt()
 
             prompt = (
-                f"Contexto: periodo do {contexto_hora}, usuario inativo ha {inativo_min} minutos. "
-                f"Ultimas interacoes: {contexto_memoria}. "
-                f"Gere UMA observacao espontanea curta no estilo REGISTRO. "
-                f"SEM JSON. So o texto. Maximo 15 palavras."
+                f"Contexto: periodo do {contexto_hora}, usuario inativo ha {inativo_min} minutos.\n"
+                f"Informacoes do usuario: {usuario_str}\n"
+                f"Sessoes recentes: {resumos_str}\n\n"
+                "Gere UMA observacao espontanea curta no estilo REGISTRO. "
+                "Pode referenciar algo das sessoes passadas, um padrao notado, ou o momento do dia. "
+                "SEM JSON. So o texto. Maximo 15 palavras."
             )
 
             response = self.client.models.generate_content(
@@ -521,6 +562,9 @@ class Brain:
         self._ultima_interacao = time.time()
         self._requisicoes_sessao += 1
 
+    def iniciar_sessao(self):
+        self._sessao_atual = []
+
     def processar_entrada(self, prompt, on_resposta=None, tentativa=0):
         self.marcar_interacao()
 
@@ -540,7 +584,7 @@ class Brain:
         prompt_efetivo = prompt
         if self._eh_pedido_de_resumo(prompt):
             bloco = self._resumo_historico_para_prompt()
-            prompt_efetivo = f"{bloco}\n\nPedido do usuario: {prompt}"
+            prompt_efetivo = f"{bloco}\n\nPedido: {prompt}"
 
         if tentativa == 0:
             self._registrar_memoria(prompt, "Luis")

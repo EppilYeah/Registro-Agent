@@ -17,12 +17,6 @@ import numpy as np
 from faster_whisper import WhisperModel
 from pedalboard import Pedalboard, Compressor, HighpassFilter, Gain, Limiter, PeakFilter, PitchShift, Delay, Reverb, Chorus
 
-try:
-    import noisereduce as nr
-    _NOISEREDUCE_OK = True
-except ImportError:
-    _NOISEREDUCE_OK = False
-
 CONF = {
     "rate": 16000, "chunk": 1024, "vad_chunk": 512,
     "voice": "pt-BR-ThalitaNeural",
@@ -48,7 +42,7 @@ _WHISPER_PROMPT_BASE = (
     "Exemplos: cara, mano, abre, fecha, muda, aumenta, diminui, ta, ne, po, oxe, vei."
 )
 
-_VAD_SILENCE_FRAMES = 20
+_VAD_SILENCE_FRAMES = 30
 _VAD_MIN_SPEECH_FRAMES = 5
 _VAD_TIMEOUT_SEC = 8
 
@@ -108,7 +102,7 @@ class AudioHandler:
         self._carregar_whisper()
 
         self.rec_sr = sr.Recognizer()
-        self.rec_sr.pause_threshold = 0.5
+        self.rec_sr.pause_threshold = 0.8
         self.rec_sr.non_speaking_duration = 0.3
         self.rec_sr.energy_threshold = settings.get("energia_microfone")
         self.rec_sr.dynamic_energy_threshold = False
@@ -286,12 +280,7 @@ class AudioHandler:
         return audio_np
 
     def _reduzir_ruido(self, audio_np):
-        if not _NOISEREDUCE_OK:
-            return audio_np
-        try:
-            return nr.reduce_noise(y=audio_np, sr=CONF["rate"], stationary=True, prop_decrease=0.4)
-        except:
-            return audio_np
+        return audio_np
 
     def _construir_prompt_contextual(self):
         prompt = _WHISPER_PROMPT_BASE
@@ -462,8 +451,10 @@ class AudioHandler:
                     beam_size=5,
                     initial_prompt=self._construir_prompt_contextual(),
                     vad_filter=False,
-                    temperature=0.0,
+                    temperature=[0.0, 0.2, 0.4],
                     condition_on_previous_text=False,
+                    no_speech_threshold=0.3,
+                    compression_ratio_threshold=2.4,
                 )
                 texto = " ".join(s.text for s in segments).strip()
                 if texto:

@@ -1,14 +1,15 @@
 {
   "pesos_emocao": {
-    "neutro": 0.6757244109696235,
-    "sarcasmo_tedio": 0.08047849959805801,
-    "irritado": 0.03855151585861696,
-    "confuso": 0.0855503334766606,
-    "arrogante": 0.047347640143369604,
-    "desconfiado": 0.03852785699412162,
-    "feliz": 0.03381974295954974
+    "neutro": 0.6805642646703506,
+    "sarcasmo_tedio": 0.07927734793174454,
+    "irritado": 0.037976129665487614,
+    "confuso": 0.08427348405572976,
+    "arrogante": 0.04664097069577479,
+    "desconfiado": 0.03795282391250222,
+    "feliz": 0.033314979068410584
   },
   "espontaneo_hoje": 0,
-  "espontaneo_data": "2026-03-22",
-  "interacoes_totais": 78
+  "espontaneo_data": "2026-03-26",
+  "interacoes_totais": 81,
+  "curiosidades_feitas": 0
 }

@@ -135,6 +135,7 @@ def ciclo_principal():
                     pass
 
                 _atualizar_rosto("neutro", False)
+                brain.iniciar_sessao()
 
                 modo_conversa = True
                 tentativas_silencio = 0
@@ -151,7 +152,8 @@ def ciclo_principal():
                         tentativas_silencio = 0
 
                         if any(x in comando_atual.lower() for x in ["tchau", "desligar", "dormir"]):
-                            audio.falar("Ate logo.", "neutro")
+                            despedida = brain.gerar_despedida()
+                            audio.falar(despedida, "neutro")
                             modo_conversa = False
                             _atualizar_rosto("neutro", False)
                             break
@@ -200,6 +202,7 @@ def ciclo_principal():
                 _em_conversa = False
                 _ultimo_acordar = time.time()
                 brain.flush_perfil()
+                threading.Thread(target=brain.gerar_resumo_sessao, daemon=True).start()
                 threading.Thread(target=brain.atualizar_dicionario_usuario, daemon=True).start()
 
             time.sleep(0.1)
