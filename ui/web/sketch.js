@@ -274,6 +274,23 @@ function sincronizarUI(cfg) {
         v => parseFloat(v).toFixed(2), v => Math.round(v * 100));
     sincronizarSlider('vad_consecutivo', cfg.vad_consecutivo, 'val-vad_consecutivo',
         v => v, v => v);
+
+    sincronizarSlider('stt_vad_threshold', cfg.stt_vad_threshold, 'val-stt_vad_threshold',
+        v => parseFloat(v).toFixed(2), v => Math.round(Number(v) * 100));
+    sincronizarSlider('stt_vad_energia', cfg.stt_vad_energia, 'val-stt_vad_energia',
+        v => parseFloat(v).toFixed(2), v => Math.round(Number(v) * 100));
+    sincronizarSlider('stt_frames_silencio_fim', cfg.stt_frames_silencio_fim, 'val-stt_frames_silencio_fim',
+        v => v + ' (~' + Math.round(v * 32) + 'ms)', v => v);
+    sincronizarSlider('stt_min_frames_voz', cfg.stt_min_frames_voz, 'val-stt_min_frames_voz',
+        v => v, v => v);
+    sincronizarSlider('stt_post_speech_silence_sec', cfg.stt_post_speech_silence_sec, 'val-stt_post_speech_silence_sec',
+        v => parseFloat(v).toFixed(2) + 's', v => Math.round(Number(v) * 100));
+    sincronizarSlider('stt_realtime_silero_sensitivity', cfg.stt_realtime_silero_sensitivity, 'val-stt_realtime_silero_sensitivity',
+        v => parseFloat(v).toFixed(2), v => Math.round(Number(v) * 100));
+
+    let selBeam = document.getElementById('select-whisper_beam_size');
+    if (selBeam && cfg.whisper_beam_size != null) selBeam.value = String(cfg.whisper_beam_size);
+
     sincronizarSlider('energia_microfone', cfg.energia_microfone, 'val-energia_microfone',
         v => v, v => v);
     sincronizarSlider('modo_ambient_timeout_min', cfg.modo_ambient_timeout_min, 'val-ambient_timeout',

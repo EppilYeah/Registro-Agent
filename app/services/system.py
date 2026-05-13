@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import threading
@@ -6,25 +7,29 @@ import datetime
 import pyautogui
 import math
 import time
-import base64
+import io
 import pyperclip
 import settings
+import config
 from PIL import ImageGrab
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IMMDeviceEnumerator, EDataFlow, ERole
 from ctypes import cast, POINTER
 from comtypes import CoCreateInstance, GUID
 
-try:
-    import urllib.request
-    import urllib.parse
-    import json as _json
-except:
-    pass
+logger = logging.getLogger(__name__)
 
 
 class Systemhandler:
-    def __init__(self, funcao_falar=None, funcao_gerar_texto=None, funcao_js=None, funcao_brain_client=None):
+    def __init__(
+        self,
+        funcao_falar=None,
+        funcao_gerar_texto=None,
+        funcao_js=None,
+        funcao_brain_client=None,
+        funcao_modelo_gemini=None,
+        funcao_encerramento_graceful=None,
+    ):
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 1.0
 
@@ -32,6 +37,8 @@ class Systemhandler:
         self.funcao_gerar_texto = funcao_gerar_texto
         self.funcao_js = funcao_js
         self.funcao_brain_client = funcao_brain_client
+        self.funcao_modelo_gemini = funcao_modelo_gemini
+        self.funcao_encerramento_graceful = funcao_encerramento_graceful
         self.volume_control = None
 
         self._inicializar_audio()
@@ -73,7 +80,7 @@ class Systemhandler:
         if not self.volume_control:
             return "Erro: Driver de áudio não disponível. Execute como administrador."
         try:
-            valor_float = float(valor)
+            valor_float = float(valor) if valor is not None else 0.0
             valor_os = valor_float / 100.0
             volume_atual = self.volume_control.GetMasterVolumeLevelScalar()
             novo_volume = volume_atual
@@ -127,8 +134,8 @@ class Systemhandler:
         if self.funcao_gerar_texto:
             try:
                 texto_final = self.funcao_gerar_texto(mensagem_bruta)
-            except:
-                pass
+            except Exception as e:
+                logger.debug("alerta gerar_texto: %s", e)
         if self.funcao_falar:
             self.funcao_falar(texto_final, "arrogante")
 
@@ -208,31 +215,51 @@ class Systemhandler:
             return f"Erro ao executar: {e}"
 
     def ver_tela(self):
-        try:
-            if not self.funcao_brain_client:
-                return "Cliente de IA não disponível para análise visual."
+        if not self.funcao_brain_client:
+            return "Cliente de IA não disponível para análise visual."
 
+        try:
             img = ImageGrab.grab()
             img = img.resize((1280, 720))
 
-            import io
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=70)
-            img_b64 = base64.b64encode(buf.getvalue()).decode()
+            jpeg_bytes = buf.getvalue()
 
             from google.genai import types as gtypes
-            response = self.funcao_brain_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[
-                    gtypes.Part.from_bytes(
-                        data=base64.b64decode(img_b64),
-                        mime_type="image/jpeg"
-                    ),
-                    "Descreva de forma concisa o que está visível nesta tela. Foque no conteúdo principal."
-                ]
-            )
-            return response.text.strip()
+            instrucao = "Descreva de forma concisa o que está visível nesta tela. Foque no conteúdo principal."
+
+            candidatos = []
+            if self.funcao_modelo_gemini:
+                try:
+                    m = self.funcao_modelo_gemini()
+                    if m:
+                        candidatos.append(m)
+                except Exception as e:
+                    logger.warning("modelo Gemini (callback): %s", e)
+            for m in config.LISTA_MODELOS:
+                if m not in candidatos:
+                    candidatos.append(m)
+            if "gemini-2.0-flash" not in candidatos:
+                candidatos.append("gemini-2.0-flash")
+
+            ultimo_erro = None
+            for modelo in candidatos:
+                try:
+                    response = self.funcao_brain_client.models.generate_content(
+                        model=modelo,
+                        contents=[
+                            gtypes.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+                            instrucao,
+                        ],
+                    )
+                    return response.text.strip()
+                except Exception as e:
+                    ultimo_erro = e
+                    logger.warning("ver_tela modelo %s: %s", modelo, e)
+            return f"Erro ao analisar tela: {ultimo_erro}"
         except Exception as e:
+            logger.exception("ver_tela captura")
             return f"Erro ao capturar tela: {e}"
 
     def consultar_perfil_usuario(self, campo=None):
@@ -255,5 +282,12 @@ class Systemhandler:
             return f"Erro ao consultar perfil: {e}"
 
     def finalizar_sofrimento(self):
-        time.sleep(5)
+        if self.funcao_encerramento_graceful:
+            try:
+                self.funcao_encerramento_graceful()
+                return "Encerrando."
+            except Exception as e:
+                logger.exception("encerramento graceful")
+                return f"Erro ao encerrar: {e}"
+        time.sleep(3)
         os._exit(0)

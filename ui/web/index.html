@@ -114,6 +114,83 @@
                 </div>
 
                 <div class="eva-divider">
+                    <span class="eva-divider-label">COMANDO PT-BR (STT)</span>
+                </div>
+                <p class="eva-hint" style="font-size:10px;opacity:.75;margin:0 0 8px 0;line-height:1.35">
+                    Ajustes só para ouvir comandos em português brasileiro. O bloco acima continua a controlar interrupção da voz do assistente.
+                </p>
+
+                <div class="eva-field">
+                    <span class="eva-label">STT — LIMIAR VOZ</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="40" max="85" value="58"
+                               id="slider-stt_vad_threshold" style="--fill: 51%"
+                               oninput="sliderConfig('stt_vad_threshold',this.value/100,'val-stt_vad_threshold',v=>parseFloat(v).toFixed(2));updateFill(this,40,85)">
+                        <span class="eva-val" id="val-stt_vad_threshold">0.58</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">STT — ENERGIA MÍNIMA</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="3" max="20" value="6"
+                               id="slider-stt_vad_energia" style="--fill: 18%"
+                               oninput="sliderConfig('stt_vad_energia',this.value/100,'val-stt_vad_energia',v=>parseFloat(v).toFixed(2));updateFill(this,3,20)">
+                        <span class="eva-val" id="val-stt_vad_energia">0.06</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">STT — SILÊNCIO P/ FECHAR FRASE (×32ms)</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="22" max="48" value="34"
+                               id="slider-stt_frames_silencio_fim" style="--fill: 45%"
+                               oninput="sliderConfig('stt_frames_silencio_fim',parseInt(this.value),'val-stt_frames_silencio_fim',v=>v+' (~'+Math.round(v*32)+'ms)');updateFill(this,22,48)">
+                        <span class="eva-val" id="val-stt_frames_silencio_fim">34 (~1088ms)</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">STT — MÍN. FRAMES DE VOZ</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="2" max="10" value="4"
+                               id="slider-stt_min_frames_voz" style="--fill: 25%"
+                               oninput="sliderConfig('stt_min_frames_voz',parseInt(this.value),'val-stt_min_frames_voz',v=>v);updateFill(this,2,10)">
+                        <span class="eva-val" id="val-stt_min_frames_voz">4</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">REALTIMESTT — SILÊNCIO PÓS-FALA</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="45" max="95" value="65"
+                               id="slider-stt_post_speech_silence_sec" style="--fill: 37%"
+                               oninput="sliderConfig('stt_post_speech_silence_sec',this.value/100,'val-stt_post_speech_silence_sec',v=>parseFloat(v).toFixed(2)+'s');updateFill(this,45,95)">
+                        <span class="eva-val" id="val-stt_post_speech_silence_sec">0.65s</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">REALTIMESTT — SENSIB. SILERO</span>
+                    <div class="eva-slider-group">
+                        <input type="range" class="eva-slider" min="25" max="70" value="45"
+                               id="slider-stt_realtime_silero_sensitivity" style="--fill: 48%"
+                               oninput="sliderConfig('stt_realtime_silero_sensitivity',this.value/100,'val-stt_realtime_silero_sensitivity',v=>parseFloat(v).toFixed(2));updateFill(this,25,70)">
+                        <span class="eva-val" id="val-stt_realtime_silero_sensitivity">0.45</span>
+                    </div>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">WHISPER — BEAM (1=rápido, 5=preciso)</span>
+                    <select class="eva-select" id="select-whisper_beam_size"
+                            onchange="updateConfig('whisper_beam_size', parseInt(this.value, 10))">
+                        <option value="1">1 (mais rápido)</option>
+                        <option value="3" selected>3 (equilíbrio)</option>
+                        <option value="5">5 (mais preciso)</option>
+                    </select>
+                </div>
+
+                <div class="eva-divider">
                     <span class="eva-divider-label">MICROFONE</span>
                 </div>
 

@@ -28,14 +28,14 @@ LISTA_FERRAMENTAS = [
 
     types.Tool(function_declarations=[types.FunctionDeclaration(
         name="volume_pc",
-        description="Controla o volume do sistema. ATENÇÃO: 'aumentar' significa SUBIR o volume, 'diminuir' significa ABAIXAR o volume.",
+        description="Controla o volume do sistema. ATENÇÃO: 'aumentar' significa SUBIR o volume, 'diminuir' significa ABAIXAR o volume. Para 'mudo', omita valor ou use 0.",
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
                 "modo": types.Schema(type=types.Type.STRING, description="Use 'aumentar' para SUBIR o volume, 'diminuir' para ABAIXAR, 'definir' para valor exato, ou 'mudo' para silenciar."),
-                "valor": types.Schema(type=types.Type.NUMBER, description="Porcentagem (0 a 100). Ex: Para aumentar 20%, use valor=20.")
+                "valor": types.Schema(type=types.Type.NUMBER, description="Opcional se modo for 'mudo'. Caso contrario: porcentagem (0 a 100). Ex: aumentar 20%% → valor=20.")
             },
-            required=["modo", "valor"]
+            required=["modo"]
         )
     )]),
 

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import time
@@ -8,10 +9,35 @@ import threading
 import traceback
 import sys
 import config
+import settings
 from datetime import datetime, date
 
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger(__name__)
+
+EMO_RESPOSTA_VALIDAS = frozenset({
+    "neutro", "sarcasmo_tedio", "irritado", "confuso", "arrogante", "desconfiado", "feliz",
+})
+
+RESPOSTA_JSON_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "emocao": types.Schema(
+            type=types.Type.STRING,
+            description=(
+                "Uma destas emocoes: neutro, sarcasmo_tedio, irritado, confuso, "
+                "arrogante, desconfiado, feliz"
+            ),
+        ),
+        "texto_resposta": types.Schema(
+            type=types.Type.STRING,
+            description="Texto da resposta em portugues para sintese de voz",
+        ),
+    },
+    required=["emocao", "texto_resposta"],
+)
 
 
 class Brain:
@@ -46,10 +72,8 @@ class Brain:
         self._ultimo_update_usuario = 0
 
     def _log_chaves(self):
-        print(f"\n{'='*60}\nCHAVES: {len(config.API_KEYS)}")
-        for i, key in enumerate(config.API_KEYS, 1):
-            print(f"  {i}. ...{key[-8:]}")
-        print(f"{'='*60}\n")
+        n = len(config.API_KEYS) if config.API_KEYS else (1 if config.API_KEY else 0)
+        print(f"\n{'='*60}\nCHAVES API CARREGADAS: {n}\n{'='*60}\n")
 
     def _aguardar_reset(self):
         print("\n[QUOTA] Aguardando reset (60s)...")
@@ -61,7 +85,10 @@ class Brain:
 
     def _encontrar_combinacao_funcional(self):
         todas_chaves = list(config.API_KEYS) if config.API_KEYS else [config.API_KEY]
+        preferido = settings.get("modelo")
         todos_modelos = list(config.LISTA_MODELOS)
+        if preferido:
+            todos_modelos = [preferido] + [m for m in todos_modelos if m != preferido]
 
         safety_settings = [
             types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,       threshold=types.HarmBlockThreshold.BLOCK_NONE),
@@ -75,7 +102,9 @@ class Brain:
             top_p=0.95,
             top_k=40,
             safety_settings=safety_settings,
-            tools=getattr(config, 'LISTA_FERRAMENTAS', [])
+            tools=getattr(config, 'LISTA_FERRAMENTAS', []),
+            response_mime_type="application/json",
+            response_schema=RESPOSTA_JSON_SCHEMA,
         )
 
         tentativas_reset = 0
@@ -91,11 +120,32 @@ class Brain:
                             contents=".",
                             config=types.GenerateContentConfig(max_output_tokens=1)
                         )
-                        chat = client.chats.create(
-                            model=modelo,
-                            config=config_obj,
-                            history=self.carregar_memoria()
-                        )
+                        try:
+                            chat = client.chats.create(
+                                model=modelo,
+                                config=config_obj,
+                                history=self.carregar_memoria(),
+                            )
+                        except Exception as e_create:
+                            err = str(e_create).lower()
+                            if "response" not in err and "schema" not in err and "mime" not in err:
+                                raise
+                            logger.warning(
+                                "Sessao chat com JSON estruturado indisponivel (%s); usando modo texto.",
+                                e_create,
+                            )
+                            config_fallback = types.GenerateContentConfig(
+                                temperature=1.0,
+                                top_p=0.95,
+                                top_k=40,
+                                safety_settings=safety_settings,
+                                tools=getattr(config, "LISTA_FERRAMENTAS", []),
+                            )
+                            chat = client.chats.create(
+                                model=modelo,
+                                config=config_fallback,
+                                history=self.carregar_memoria(),
+                            )
                         self.client = client
                         self.modelo_nome = modelo
                         print("OK")
@@ -118,8 +168,10 @@ class Brain:
             with open(self.caminho_resumos, 'r', encoding='utf-8') as f:
                 for linha in f.readlines()[-15:]:
                     resultado.append(json.loads(linha))
-        except:
+        except FileNotFoundError:
             pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Resumos: %s", e)
         return resultado
 
     def _carregar_memoria_disco(self):
@@ -128,8 +180,10 @@ class Brain:
             with open(self.caminho_memoria, 'r', encoding='utf-8') as f:
                 for linha in f.readlines()[-30:]:
                     resultado.append(json.loads(linha))
-        except:
+        except FileNotFoundError:
             pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Memoria disco: %s", e)
         return resultado
 
     def gerar_resumo_sessao(self):
@@ -191,7 +245,8 @@ class Brain:
                 config=types.GenerateContentConfig(max_output_tokens=40, temperature=0.8)
             )
             return response.text.strip()
-        except:
+        except Exception as e:
+            logger.warning("gerar_despedida: %s", e)
             return "Ate logo."
 
     def _ler_historico_completo(self):
@@ -202,10 +257,11 @@ class Brain:
             for linha in linhas:
                 try:
                     entradas.append(json.loads(linha))
-                except:
+                except json.JSONDecodeError:
                     pass
             return entradas
-        except:
+        except OSError as e:
+            logger.warning("historico completo: %s", e)
             return self._memoria_cache
 
     def _eh_pedido_de_resumo(self, prompt):
@@ -246,8 +302,8 @@ class Brain:
             with open(self.caminho_perfil, 'r', encoding='utf-8') as f:
                 salvo = json.load(f)
                 padrao.update(salvo)
-        except:
-            pass
+        except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
+            logger.debug("perfil carregar: %s", e)
         return padrao
 
     def _salvar_perfil(self):
@@ -256,8 +312,8 @@ class Brain:
             with open(self.caminho_perfil, 'w', encoding='utf-8') as f:
                 json.dump(self._perfil, f, indent=2, ensure_ascii=False)
             self._perfil_dirty = False
-        except:
-            pass
+        except OSError as e:
+            logger.warning("perfil salvar: %s", e)
 
     def flush_perfil(self):
         if self._perfil_dirty:
@@ -292,8 +348,8 @@ class Brain:
             os.makedirs(os.path.dirname(self.caminho_memoria), exist_ok=True)
             with open(self.caminho_memoria, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except:
-            pass
+        except OSError as e:
+            logger.warning("registrar memoria: %s", e)
         self._memoria_cache.append(entry)
         self._sessao_atual.append(entry)
         if len(self._memoria_cache) > 100:
@@ -391,52 +447,80 @@ class Brain:
 
         return res, False
 
+    def _autor_usuario_memoria(self):
+        u = self._carregar_usuario()
+        for chave in ("nome", "Name", "usuario", "user"):
+            v = u.get(chave)
+            if v and str(v).strip():
+                return str(v).strip()
+        return "USUARIO"
+
+    def _normalizar_resposta(self, dados):
+        if not isinstance(dados, dict):
+            return {"emocao": "neutro", "texto_resposta": str(dados)}
+        em = dados.get("emocao", "neutro")
+        tx = dados.get("texto_resposta", "")
+        if em not in EMO_RESPOSTA_VALIDAS:
+            em = "neutro"
+        if not isinstance(tx, str):
+            tx = str(tx)
+        return {"emocao": em, "texto_resposta": tx}
+
     def _parsear_json(self, texto):
-        if not texto: return {"emocao": "confuso", "texto_resposta": "Sem resposta"}
+        if not texto:
+            return self._normalizar_resposta({"emocao": "confuso", "texto_resposta": "Sem resposta"})
         txt = texto.replace("```json", "").replace("```", "").strip()
         try:
-            return json.loads(txt)
+            return self._normalizar_resposta(json.loads(txt))
         except json.JSONDecodeError:
             pass
         try:
             match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt, re.DOTALL)
             if match:
-                return json.loads(match.group(0))
-        except:
-            pass
-        print("[JSON] Erro. Pedindo correcao...")
+                return self._normalizar_resposta(json.loads(match.group(0)))
+        except json.JSONDecodeError as e:
+            logger.debug("parsear_json regex: %s", e)
+        logger.warning("JSON invalido, pedindo correcao ao modelo")
         for tentativa in range(2):
             try:
                 correcao = self.chat.send_message(
-                    "ERRO: Retorne APENAS:\n"
-                    '{"emocao": "escolha_uma", "texto_resposta": "texto"}'
+                    "ERRO: Retorne APENAS JSON valido com chaves emocao e texto_resposta."
                 )
                 txt_c = correcao.text.replace("```json", "").replace("```", "").strip()
                 try:
-                    return json.loads(txt_c)
-                except:
+                    return self._normalizar_resposta(json.loads(txt_c))
+                except json.JSONDecodeError:
                     match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_c, re.DOTALL)
                     if match:
-                        return json.loads(match.group(0))
+                        return self._normalizar_resposta(json.loads(match.group(0)))
             except Exception as e:
-                print(f"[JSON] Tentativa {tentativa+1}/2 falhou: {e}")
-        return {"emocao": "confuso", "texto_resposta": texto[:300]}
+                logger.warning("Correcao JSON tentativa %s: %s", tentativa + 1, e)
+        return self._normalizar_resposta({
+            "emocao": "confuso",
+            "texto_resposta": (txt[:300] if txt else "Resposta ilegivel."),
+        })
 
     def _tentar_parsear_parcial(self, texto):
         try:
             limpo = texto.replace("```json", "").replace("```", "").strip()
             match = re.search(r'"emocao"\s*:\s*"([^"]+)".*?"texto_resposta"\s*:\s*"((?:[^"\\]|\\.)+)"', limpo, re.DOTALL)
             if match:
-                return {"emocao": match.group(1), "texto_resposta": match.group(2).replace('\\"', '"')}
-        except:
-            pass
+                return self._normalizar_resposta({
+                    "emocao": match.group(1),
+                    "texto_resposta": match.group(2).replace('\\"', '"'),
+                })
+        except (AttributeError, IndexError) as e:
+            logger.debug("parse parcial: %s", e)
         return None
 
     def _carregar_usuario(self):
         try:
             with open(self.caminho_usuario, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
+        except FileNotFoundError:
+            return {}
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("usuario.json: %s", e)
             return {}
 
     def _salvar_usuario(self, dados):
@@ -490,15 +574,14 @@ class Brain:
         self._thread_espontaneo.start()
 
     def _loop_espontaneo(self):
-        import settings as s
         while True:
             time.sleep(60)
             try:
-                if not s.get("comportamento_espontaneo"):
+                if not settings.get("comportamento_espontaneo"):
                     continue
                 agora = time.time()
-                cooldown = s.get("espontaneo_cooldown_min") * 60
-                limite = s.get("espontaneo_limite_diario")
+                cooldown = settings.get("espontaneo_cooldown_min") * 60
+                limite = settings.get("espontaneo_limite_diario")
 
                 if str(date.today()) != self._perfil.get("espontaneo_data"):
                     self._perfil["espontaneo_hoje"] = 0
@@ -587,7 +670,7 @@ class Brain:
             prompt_efetivo = f"{bloco}\n\nPedido: {prompt}"
 
         if tentativa == 0:
-            self._registrar_memoria(prompt, "Luis")
+            self._registrar_memoria(prompt, self._autor_usuario_memoria())
 
         self.contador_requisicoes += 1
         print(f"[REQ #{self.contador_requisicoes}] Tent. {tentativa+1}")
@@ -641,8 +724,6 @@ class Brain:
                     return dados
 
             dados = self._parsear_json(res_text)
-            if not isinstance(dados, dict):
-                dados = {"emocao": "neutro", "texto_resposta": str(dados)}
 
             self._atualizar_perfil_emocao(dados.get("emocao", "neutro"))
 
@@ -680,5 +761,6 @@ class Brain:
                 config=types.GenerateContentConfig(max_output_tokens=60)
             )
             return response.text.strip()
-        except:
+        except Exception as e:
+            logger.warning("gerar_texto_aleatorio: %s", e)
             return f"Lembrete: {tema}"

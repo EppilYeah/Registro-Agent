@@ -1,3 +1,4 @@
+import logging
 import webview
 import threading
 import time
@@ -8,6 +9,12 @@ from app.core.audio import AudioHandler
 from app.core.vision import VisionHandler
 from app.services.system import Systemhandler
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("registro")
+
 print("INICIANDO REGISTRO")
 
 settings.carregar()
@@ -17,6 +24,15 @@ _JANELA = None
 _ui_pronta = threading.Event()
 _em_conversa = False
 _ultimo_acordar = time.time()
+
+LLM_TTS_TIMEOUT_SEC = 120
+
+_STT_RELOAD_KEYS = frozenset({
+    "whisper_modelo",
+    "whisper_device",
+    "stt_post_speech_silence_sec",
+    "stt_realtime_silero_sensitivity",
+})
 
 def _js(codigo):
     try:
@@ -32,17 +48,42 @@ def _contexto_historico():
     try:
         ultimas = [d["texto"] for d in brain._memoria_cache[-4:] if d.get("autor") != "REGISTRO"]
         return " ".join(ultimas[-3:])
-    except:
+    except (KeyError, TypeError, IndexError) as e:
+        logger.debug("contexto historico: %s", e)
         return ""
 
 audio = AudioHandler(funcao_contexto_historico=_contexto_historico)
 brain = Brain()
 visao = VisionHandler(funcao_js=_js)
+
+
+def _encerramento_graceful():
+    logger.warning("Encerramento solicitado (finalizar_sofrimento).")
+    try:
+        visao.parar()
+    except Exception:
+        logger.exception("Parar visao no encerramento")
+
+    def _exit_depois():
+        time.sleep(0.5)
+        os._exit(0)
+
+    threading.Timer(2.5, _exit_depois).start()
+    try:
+        global _JANELA
+        if _JANELA:
+            _JANELA.destroy()
+    except Exception:
+        logger.exception("Fechar webview no encerramento")
+
+
 sistema = Systemhandler(
     funcao_falar=audio.falar,
     funcao_gerar_texto=brain.gerar_texto_aleatorio,
     funcao_js=_js,
-    funcao_brain_client=brain.client
+    funcao_brain_client=brain.client,
+    funcao_modelo_gemini=lambda: brain.modelo_nome,
+    funcao_encerramento_graceful=_encerramento_graceful,
 )
 brain.sistema = sistema
 
@@ -53,8 +94,8 @@ class API:
 
     def atualizar_setting(self, chave, valor):
         settings.set(chave, valor)
-        if chave in ("whisper_modelo", "whisper_device"):
-            threading.Thread(target=audio.recarregar_whisper, daemon=True).start()
+        if chave in _STT_RELOAD_KEYS:
+            threading.Thread(target=audio.recarregar_stt, daemon=True).start()
 
     def obter_settings(self):
         return settings.todos()
@@ -95,8 +136,8 @@ def _loop_idle():
                 _js("window.jsAtualizarRosto('neutro', false)")
                 if _JANELA:
                     _JANELA.resize(80, 80)
-        except:
-            pass
+        except Exception as e:
+            logger.debug("loop_idle: %s", e)
 
 
 def ciclo_principal():
@@ -131,8 +172,8 @@ def ciclo_principal():
                     _JANELA.restore()
                     _JANELA.resize(500, 500)
                     _JANELA.move(100, 100)
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug("Restaurar janela: %s", e)
 
                 _atualizar_rosto("neutro", False)
                 brain.iniciar_sessao()
@@ -180,8 +221,15 @@ def ciclo_principal():
                             daemon=True
                         )
                         thread_llm.start()
-                        tts_iniciado.wait()
-                        thread_llm.join()
+                        if not tts_iniciado.wait(timeout=LLM_TTS_TIMEOUT_SEC):
+                            logger.error(
+                                "Timeout (%ss) aguardando resposta/TTS do modelo.",
+                                LLM_TTS_TIMEOUT_SEC,
+                            )
+                            audio.falar("Demorei demais para processar isso.", "neutro")
+                        thread_llm.join(timeout=10.0)
+                        if thread_llm.is_alive():
+                            logger.warning("Thread do LLM ainda em execucao apos join.")
 
                         foi_interrompido = tts_result[0]
                         comando_atual = None

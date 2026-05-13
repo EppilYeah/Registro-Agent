@@ -1,5 +1,8 @@
 import json
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _CAMINHO = os.path.join(_DIR, "data", "settings.json")
@@ -20,6 +23,16 @@ _PADROES = {
     "dormindo_timeout_min": 15,
     "whisper_modelo": "base",
     "whisper_device": "cpu",
+    "whisper_beam_size": 3,
+    # VAD só para gravar comando (pt-BR); mais sensível que o VAD de interromper TTS
+    "stt_vad_threshold": 0.58,
+    "stt_vad_energia": 0.06,
+    "stt_frames_silencio_fim": 34,
+    "stt_min_frames_voz": 4,
+    "stt_max_espera_seg": 10.0,
+    "stt_recorder_timeout_sec": 60.0,
+    "stt_post_speech_silence_sec": 0.65,
+    "stt_realtime_silero_sensitivity": 0.45,
 }
 
 _cfg = {}
@@ -30,8 +43,10 @@ def carregar():
     try:
         with open(_CAMINHO, 'r', encoding='utf-8') as f:
             _cfg.update(json.load(f))
-    except:
+    except FileNotFoundError:
         pass
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("settings carregar: %s", e)
     return _cfg
 
 def salvar():
@@ -39,8 +54,8 @@ def salvar():
         os.makedirs(os.path.dirname(_CAMINHO), exist_ok=True)
         with open(_CAMINHO, 'w', encoding='utf-8') as f:
             json.dump(_cfg, f, indent=2, ensure_ascii=False)
-    except:
-        pass
+    except OSError as e:
+        logger.warning("settings salvar: %s", e)
 
 def get(chave):
     return _cfg.get(chave, _PADROES.get(chave))

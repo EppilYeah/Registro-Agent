@@ -1,3 +1,4 @@
+import logging
 import cv2  # pylint: disable=no-member
 import mediapipe as mp
 import numpy as np
@@ -5,6 +6,12 @@ import threading
 import time
 import math
 import settings
+
+logger = logging.getLogger(__name__)
+
+# Solta o dispositivo de captura após N segundos com câmera "desligada" nas settings
+CAMERA_LIBERAR_APOS_SEG = 60.0
+
 
 class VisionHandler:
     def __init__(self, funcao_js=None):
@@ -25,6 +32,7 @@ class VisionHandler:
         self.smooth_x = 0.0
         self.smooth_y = 0.0
         self._ultimo_envio_js = 0.0
+        self._camera_off_acumulado = 0.0
 
     def iniciar(self):
         if self.rodando: return
@@ -50,10 +58,31 @@ class VisionHandler:
 
         frame_count = 0
 
-        while self.rodando and self.cap.isOpened():
+        while self.rodando:
             if not settings.get("camera_ativa"):
+                self._camera_off_acumulado += 0.2
+                if (
+                    self.cap is not None
+                    and self._camera_off_acumulado >= CAMERA_LIBERAR_APOS_SEG
+                    and self.cap.isOpened()
+                ):
+                    try:
+                        self.cap.release()
+                        logger.info("Camera liberada apos inatividade nas configuracoes")
+                    except Exception as e:
+                        logger.warning("Camera release: %s", e)
+                    self.cap = None
                 time.sleep(0.2)
                 continue
+
+            self._camera_off_acumulado = 0.0
+            if self.cap is None or not self.cap.isOpened():
+                self.cap = cv2.VideoCapture(0)
+                if not self.cap.isOpened():
+                    logger.warning("Nao foi possivel reabrir a camera")
+                    time.sleep(1.0)
+                    continue
+                self.prev_gray = None
 
             success, frame = self.cap.read()
             if not success:
