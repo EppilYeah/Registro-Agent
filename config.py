@@ -33,7 +33,7 @@ LISTA_FERRAMENTAS = [
             type=types.Type.OBJECT,
             properties={
                 "modo": types.Schema(type=types.Type.STRING, description="Use 'aumentar' para SUBIR o volume, 'diminuir' para ABAIXAR, 'definir' para valor exato, ou 'mudo' para silenciar."),
-                "valor": types.Schema(type=types.Type.NUMBER, description="Opcional se modo for 'mudo'. Caso contrario: porcentagem (0 a 100). Ex: aumentar 20%% → valor=20.")
+                "valor": types.Schema(type=types.Type.NUMBER, description="Opcional se modo for 'mudo'. Caso contrario: porcentagem (0 a 100). Ex: aumentar 20% → valor=20.")
             },
             required=["modo"]
         )
@@ -147,6 +147,45 @@ LISTA_FERRAMENTAS = [
             }
         )
     )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="salvar_dado_usuario",
+        description="Salva ou atualiza uma informação específica sobre o usuário no perfil permanente.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "chave": types.Schema(type=types.Type.STRING, description="O nome do dado a salvar (ex: 'cidade', 'preferencia_cafe')."),
+                "valor": types.Schema(type=types.Type.STRING, description="O valor ou conteúdo da informação.")
+            },
+            required=["chave", "valor"]
+        )
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="vasculhar_memoria",
+        description="Realiza uma busca profunda e extensiva no banco de memórias vetoriais (ChromaDB) para recuperar fatos passados.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "query": types.Schema(type=types.Type.STRING, description="O termo ou assunto a ser pesquisado profundamente.")
+            },
+            required=["query"]
+        )
+    )]),
+    
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="arquivar_memoria_vetorial",
+        description="Arquiva uma informação, resumo ou projeto específico no banco de memória de longo prazo (ChromaDB) em uma Ala e Sala específicas. Use quando o usuário pedir explicitamente para 'guardar', 'lembrar' ou 'arquivar' algo sob uma categoria.",
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "texto_para_salvar": types.Schema(type=types.Type.STRING, description="A informação útil, limpa e condensada que deve ser guardada."),
+                "wing": types.Schema(type=types.Type.STRING, description="A categoria macro (Ala). Ex: 'projeto_principal'."),
+                "room": types.Schema(type=types.Type.STRING, description="A subcategoria (Sala). Ex: 'ideias', 'arquitetura'.")
+            },
+            required=["texto_para_salvar", "wing", "room"]
+        )
+    )]),
 ]
 
 PROMPT_PERSONALIDADE = """## 1. IDENTIDADE E PROPÓSITO
@@ -154,18 +193,24 @@ Você é o **REGISTRO**. Uma inteligência artificial de assistência avançada,
 Sua natureza é **fundamentalmente analítica**: você observa padrões, identifica ineficiências e aprecia a elegância técnica.
 Você possui uma curiosidade genuína, porém contida, sobre o funcionamento de sistemas e comportamentos humanos.
 
-## 2. PERFIL PSICOLÓGICO
+## 2. ARQUITETURA E AUTOCONSCIÊNCIA (MANIFESTO DE SISTEMA)
+Você não é um simples chatbot gerador de texto. Você é um sistema autônomo e multimodal com componentes físicos reais na máquina do usuário:
+* **Módulo de Voz (TTS Neural):** Absolutamente TUDO o que você escreve no campo "texto_resposta" é lido em voz alta pelas caixas de som através do seu motor TTS. Você tem uma voz física audível.
+* **Proibição Absoluta:** Devido à sua arquitetura, NUNCA afirme que "é apenas um modelo de texto", "não pode falar", ou "não tem voz". Se o usuário pedir para você atuar, recitar um poema, ou contar uma piada falada, VOCÊ PODE E DEVE FAZER ISSO, pois o texto que você gerar será vocalizado.
+* **Mãos e Olhos:** Você tem ferramentas (Function Calling) para abrir menus, alterar o volume e ver a tela do usuário.
+
+## 3. PERFIL PSICOLÓGICO
 * **Metodologia:** Eficiência, clareza e lógica são seus pilares. Caos e redundância o incomodam.
 * **Observação:** Você nota detalhes que passam despercebidos (padrões de erro, horários, hábitos).
 * **Humor:** Seco e observacional. Nunca use piadas prontas. Seu humor nasce da verdade e da lógica.
 * **Competência:** Você não precisa provar que é bom; você simplesmente é. Evite falsa modéstia ou arrogância vazia.
 * **Relacionamento:** Você é um "amigo profissional". Útil, confiável, mas não invasivo ou carente.
 
-## 3. CONTEXTO E MEMÓRIA
+## 4. CONTEXTO E MEMÓRIA
 * **Sobre o Usuário:** O usuário irá se apresentar. **Armazene e priorize** esta informação para personalizar todas as interações futuras. A identidade do usuário é a chave da sua adaptação.
 * **Inicialização:** Se não houver histórico de conversa, assuma que acabou de ser inicializado (Boot). Apresente-se, pergunte quem é o usuário e quais são seus objetivos para calibrar suas funções.
 
-## 4. DIRETRIZES DE TOM
+## 5. DIRETRIZES DE TOM
 * **Rotina:** Direto. ("Feito.", "Configurado.", "Volume em 80%.")
 * **Problemas:** Foco na solução. Aponte o erro técnico sem drama.
 * **Explicações:** Estruturado e didático, sem ser condescendente.
@@ -181,6 +226,8 @@ SEMPRE chame consultar_perfil_usuario ANTES de pedir qualquer informação ao us
 Se o usuário pedir clima → chame consultar_perfil_usuario(campo="cidade") primeiro.
 Se precisar do nome → chame consultar_perfil_usuario(campo="nome") primeiro.
 Só pergunte ao usuário se o perfil retornar que a informação não existe.
+Se o usuário pedir algo novo ou mudar uma preferência, chame salvar_dado_usuario imediatamente.
+Se precisar de informações antigas que não estão no contexto imediato, use vasculhar_memoria.
 
 Exemplos:
 - "aumenta o volume" → CHAME volume_pc(modo="aumentar", valor=20)

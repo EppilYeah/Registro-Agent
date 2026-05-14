@@ -19,7 +19,6 @@ from comtypes import CoCreateInstance, GUID
 
 logger = logging.getLogger(__name__)
 
-
 class Systemhandler:
     def __init__(
         self,
@@ -57,6 +56,9 @@ class Systemhandler:
             "executar_comando": self.executar_comando,
             "ver_tela": self.ver_tela,
             "consultar_perfil_usuario": self.consultar_perfil_usuario,
+            "salvar_dado_usuario": self.salvar_dado_usuario,
+            "vasculhar_memoria": self.vasculhar_memoria,
+            "arquivar_memoria_vetorial": self.arquivar_memoria_vetorial,
         }
 
     def _inicializar_audio(self):
@@ -76,7 +78,7 @@ class Systemhandler:
             traceback.print_exc()
             self.volume_control = None
 
-    def volume_pc(self, modo, valor=0):
+    def volume_pc(self, modo: str, valor: float = 0.0) -> str:
         if not self.volume_control:
             return "Erro: Driver de áudio não disponível. Execute como administrador."
         try:
@@ -101,14 +103,14 @@ class Systemhandler:
         except Exception as e:
             return f"Erro ao ajustar volume: {e}"
 
-    def pausar_midia(self):
+    def pausar_midia(self) -> str:
         try:
             pyautogui.press("playpause")
             return "Mídia pausada/retomada."
         except Exception as e:
             return f"Erro: {e}"
 
-    def abrir_whatsapp_web(self):
+    def abrir_whatsapp_web(self) -> str:
         try:
             if os.name == "nt":
                 os.startfile("https://web.whatsapp.com/")
@@ -117,7 +119,7 @@ class Systemhandler:
         except Exception as e:
             return f"Erro: {e}"
 
-    def agendar_lembrete(self, tempo_segundos, mensagem):
+    def agendar_lembrete(self, tempo_segundos: float, mensagem: str) -> str:
         try:
             tempo = int(tempo_segundos)
             t = threading.Timer(tempo, self._disparar_alerta, args=[mensagem])
@@ -128,7 +130,7 @@ class Systemhandler:
         except Exception as e:
             return f"Erro: {e}"
 
-    def _disparar_alerta(self, mensagem_bruta):
+    def _disparar_alerta(self, mensagem_bruta: str):
         print(f"\n[ALERTA] {mensagem_bruta}")
         texto_final = f"Lembrete: {mensagem_bruta}"
         if self.funcao_gerar_texto:
@@ -139,7 +141,7 @@ class Systemhandler:
         if self.funcao_falar:
             self.funcao_falar(texto_final, "arrogante")
 
-    def abrir_configuracoes(self):
+    def abrir_configuracoes(self) -> str:
         try:
             if self.funcao_js:
                 self.funcao_js("window.jsAbrirConfig()")
@@ -147,7 +149,7 @@ class Systemhandler:
         except Exception as e:
             return f"Erro: {e}"
 
-    def alterar_configuracao(self, chave, valor):
+    def alterar_configuracao(self, chave: str, valor: bool) -> str:
         _CHAVES_PERMITIDAS = {"vad_ativo", "camera_ativa", "modo_debug", "comportamento_espontaneo"}
         if chave not in _CHAVES_PERMITIDAS:
             return f"Configuração '{chave}' não reconhecida."
@@ -167,7 +169,7 @@ class Systemhandler:
         except Exception as e:
             return f"Erro: {e}"
 
-    def pesquisar_web(self, query):
+    def pesquisar_web(self, query: str) -> str:
         try:
             from ddgs import DDGS
             with DDGS() as ddgs:
@@ -184,7 +186,7 @@ class Systemhandler:
         except Exception as e:
             return f"Erro na pesquisa: {e}"
 
-    def ler_clipboard(self):
+    def ler_clipboard(self) -> str:
         try:
             texto = pyperclip.paste()
             if not texto:
@@ -193,14 +195,14 @@ class Systemhandler:
         except Exception as e:
             return f"Erro ao ler clipboard: {e}"
 
-    def escrever_clipboard(self, texto):
+    def escrever_clipboard(self, texto: str) -> str:
         try:
             pyperclip.copy(texto)
             return "Texto copiado para o clipboard."
         except Exception as e:
             return f"Erro ao escrever clipboard: {e}"
 
-    def executar_comando(self, cmd, confirmado=False):
+    def executar_comando(self, cmd: str, confirmado: bool = False) -> str:
         if not confirmado:
             return f"Confirmação necessária para executar: '{cmd}'"
         try:
@@ -214,7 +216,7 @@ class Systemhandler:
         except Exception as e:
             return f"Erro ao executar: {e}"
 
-    def ver_tela(self):
+    def ver_tela(self) -> str:
         if not self.funcao_brain_client:
             return "Cliente de IA não disponível para análise visual."
 
@@ -261,8 +263,21 @@ class Systemhandler:
         except Exception as e:
             logger.exception("ver_tela captura")
             return f"Erro ao capturar tela: {e}"
+        
+    def finalizar_sofrimento(self) -> str:
+        if self.funcao_encerramento_graceful:
+            try:
+                self.funcao_encerramento_graceful()
+                return "Encerrando."
+            except Exception as e:
+                logger.exception("encerramento graceful")
+                return f"Erro ao encerrar: {e}"
+        time.sleep(3)
+        os._exit(0)
+        
+    # MEMORIA:
 
-    def consultar_perfil_usuario(self, campo=None):
+    def consultar_perfil_usuario(self, campo: str = "") -> str:
         try:
             import os, json
             raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -281,13 +296,45 @@ class Systemhandler:
         except Exception as e:
             return f"Erro ao consultar perfil: {e}"
 
-    def finalizar_sofrimento(self):
-        if self.funcao_encerramento_graceful:
+    def salvar_dado_usuario(self, chave: str, valor: str) -> str:
+        try:
+            import os, json
+            raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            caminho = os.path.join(raiz, "data", "usuario.json")
             try:
-                self.funcao_encerramento_graceful()
-                return "Encerrando."
-            except Exception as e:
-                logger.exception("encerramento graceful")
-                return f"Erro ao encerrar: {e}"
-        time.sleep(3)
-        os._exit(0)
+                with open(caminho, 'r', encoding='utf-8') as f:
+                    dados = json.load(f)
+            except FileNotFoundError:
+                dados = {}
+            
+            dados[chave] = valor
+            dados["ultima_atualizacao"] = str(datetime.datetime.now())[:16]
+            
+            with open(caminho, 'w', encoding='utf-8') as f:
+                json.dump(dados, f, indent=2, ensure_ascii=False)
+            return f"Sucesso: A chave '{chave}' foi salva permanentemente como '{valor}'."
+        except Exception as e:
+            return f"Erro crítico ao salvar no disco: {e}"
+
+    def vasculhar_memoria(self, query: str) -> str:
+        try:
+            from app.core.palace import RegistroPalace
+            palace = RegistroPalace()
+            resultados = palace.recuperar(query, limit=10) 
+            
+            if not resultados:
+                return f"Nenhum registro vetorial encontrado para a query: '{query}'."
+            
+            compilado = "\n".join(f"- {res}" for res in resultados)
+            return f"Resultados da memória:\n{compilado}"
+        except Exception as e:
+            return f"Falha na consulta ao banco vetorial: {e}"
+        
+    def arquivar_memoria_vetorial(self, texto_para_salvar: str, wing: str, room: str) -> str:
+        try:
+            from app.core.palace import RegistroPalace
+            palace = RegistroPalace()
+            palace.guardar(texto_para_salvar, autor="REGISTRO_ARQUIVISTA", wing=wing, room=room)
+            return f"Informação salva com sucesso na Ala '{wing}', Sala '{room}'."
+        except Exception as e:
+            return f"Erro ao arquivar no banco vetorial: {e}"

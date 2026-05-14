@@ -1,3 +1,4 @@
+import re
 import logging
 import os
 import io
@@ -27,16 +28,19 @@ try:
     _REALTIMESTT_OK = True
 except ImportError:
     _REALTIMESTT_OK = False
+
+try:
     from faster_whisper import WhisperModel
+    _WHISPER_OK = True
+except ImportError:
+    _WHISPER_OK = False
 
 CONF = {
     "rate": 16000, "chunk": 1024, "vad_chunk": 512,
-    # Feminino pt-BR; alternativas: pt-BR-FranciscaNeural, pt-BR-BrendaNeural
     "voice": "pt-BR-ThalitaNeural",
     "paths": {"vosk": "modelo_vosk", "vad": "silero_vad.jit"},
 }
 
-# Edge: tom mais frio / PA (menos entoacao humana); emocoes mudam ritmo.
 EMOCOES_EDGE = {
     "neutro":          {"rate": "+4%",  "pitch": "-22Hz", "volume": "+0%"},
     "sarcasmo_tedio": {"rate": "+2%",  "pitch": "-20Hz", "volume": "+0%"},
@@ -48,9 +52,6 @@ EMOCOES_EDGE = {
     "ouvindo":         {"rate": "+5%",  "pitch": "-22Hz", "volume": "+0%"},
 }
 
-# Um pouco menor = primeiro audio levemente antes (Edge ainda manda em blocos).
-BUFFER_TTS_BYTES = 24576
-
 logger = logging.getLogger(__name__)
 
 _WHISPER_PROMPT_BASE = (
@@ -60,32 +61,20 @@ _WHISPER_PROMPT_BASE = (
     "abre, fecha, muda, aumenta, diminui, Registro, computador."
 )
 
-
 class AudioHandler:
     def __init__(self, funcao_contexto_historico=None):
         self.pa = pyaudio.PyAudio()
         self.root = os.path.dirname(os.path.abspath(__file__))
         self.funcao_contexto_historico = funcao_contexto_historico
-
         self.falando = False
         self.interrompido = False
         self._stream_gravacao = None
-
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._loop_thread.start()
-
-        # Som tipo "instalacao / GLaDOS light": levemente desafinado, presenca metalica,
-        # reverb curta e seca, dinamica de sistema de PA. Cadeia enxuta = latencia por chunk baixa.
         self.board = Pedalboard([
             PitchShift(semitones=3.0),
-            Chorus(
-                rate_hz=0.85,
-                depth=0.2,
-                centre_delay_ms=6.0,
-                feedback=0.03,
-                mix=0.22,
-            ),
+            Chorus(rate_hz=0.85, depth=0.2, centre_delay_ms=6.0, feedback=0.03, mix=0.22),
             Delay(delay_seconds=0.011, feedback=0.11, mix=0.24),
             PeakFilter(cutoff_frequency_hz=3100, gain_db=9.0, q=1.35),
             PeakFilter(cutoff_frequency_hz=7200, gain_db=3.5, q=1.85),
@@ -95,7 +84,6 @@ class AudioHandler:
             Gain(gain_db=3.5),
             Limiter(threshold_db=-0.8),
         ])
-
         self._carregar_modelos()
         self.stream_vad = self._iniciar_mic()
         self._calibrar_microfone()
@@ -107,16 +95,13 @@ class AudioHandler:
         except Exception as e:
             logger.warning("VAD Silero: %s", e)
             self.vad_model = None
-
         try:
             path_vosk = os.path.join(self.root, CONF["paths"]["vosk"])
             self.rec_vosk = vosk.KaldiRecognizer(vosk.Model(path_vosk), CONF["rate"])
         except Exception as e:
             logger.warning("Vosk: %s", e)
             self.rec_vosk = None
-
         self._carregar_stt()
-
         self.rec_sr = sr.Recognizer()
         self.rec_sr.pause_threshold = 0.8
         self.rec_sr.non_speaking_duration = 0.3
@@ -152,6 +137,10 @@ class AudioHandler:
             self._carregar_whisper_fallback()
 
     def _carregar_whisper_fallback(self):
+        if not _WHISPER_OK:
+            self.whisper = None
+            print("[AUDIO] Whisper indisponivel: modulo faster_whisper ausente.")
+            return
         modelo = settings.get("whisper_modelo") or "base"
         device = settings.get("whisper_device") or "cpu"
         compute = "float16" if device == "cuda" else "int8"
@@ -163,7 +152,6 @@ class AudioHandler:
             print(f"[AUDIO] Whisper indisponivel: {e}")
 
     def recarregar_stt(self):
-        """Recria RealtimeSTT e/ou modelo Whisper após mudar settings."""
         if self.recorder:
             try:
                 if hasattr(self.recorder, "shutdown"):
@@ -221,7 +209,6 @@ class AudioHandler:
     def _monitorar_vad_thread(self, stream_dedicado):
         voz_consecutiva = 0
         buf_vad = np.empty(CONF["vad_chunk"], dtype=np.float32)
-
         while self.falando and not self.interrompido:
             if not self.vad_model or not stream_dedicado:
                 time.sleep(0.02)
@@ -236,24 +223,20 @@ class AudioHandler:
                 raw = stream_dedicado.read(CONF["vad_chunk"], exception_on_overflow=False)
                 np.copyto(buf_vad, np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0)
                 energia = np.sqrt(np.mean(buf_vad ** 2))
-
                 with torch.no_grad():
                     tensor = torch.from_numpy(buf_vad)
                     conf = self.vad_model(tensor, 16000).item()
                     del tensor
-
                 if conf > settings.get("vad_threshold") and energia > settings.get("vad_energia"):
                     voz_consecutiva += 1
                 else:
                     voz_consecutiva = max(0, voz_consecutiva - 1)
-
                 if voz_consecutiva >= settings.get("vad_consecutivo"):
                     print("[MIRA] Interrupcao detectada.")
                     self.interrompido = True
             except Exception as e:
                 logger.debug("monitorar_vad: %s", e)
                 time.sleep(0.02)
-
         try:
             stream_dedicado.stop_stream()
             stream_dedicado.close()
@@ -267,47 +250,17 @@ class AudioHandler:
         mono = (data if len(data.shape) == 1 else data[:, 0]).astype(np.float32)
         return self._efeitos_analogicos(mono, sr_chunk), sr_chunk
 
-    def _tocar_audio(self, audio_bytes, sr_rate):
-        self.falando, self.interrompido = True, False
-
-        stream_vad = self._abrir_stream_vad_dedicado()
-        thread_vad = threading.Thread(
-            target=self._monitorar_vad_thread,
-            args=(stream_vad,),
-            daemon=True
-        )
-        thread_vad.start()
-
-        out = self.pa.open(format=pyaudio.paInt16, channels=1, rate=sr_rate, output=True)
-        try:
-            chunk_size = 4096
-            for i in range(0, len(audio_bytes), chunk_size):
-                if self.interrompido:
-                    break
-                out.write(audio_bytes[i:i + chunk_size])
-        finally:
-            out.stop_stream()
-            out.close()
-
-        self.falando = False
-        return self.interrompido
-
     async def _falar_streaming_edge(self, txt, params):
-        comunicar = edge_tts.Communicate(txt, CONF["voice"], **params)
-        fila_play = queue.Queue(maxsize=6)
-
+        padrao = r'(?<=[.!?]) +'
+        sentencas = [s.strip() for s in re.split(padrao, txt) if s.strip()]
+        if not sentencas:
+            sentencas = [txt]
+        fila_play = queue.Queue(maxsize=5)
         self.falando, self.interrompido = True, False
-
         stream_vad = self._abrir_stream_vad_dedicado()
-        thread_vad = threading.Thread(
-            target=self._monitorar_vad_thread,
-            args=(stream_vad,),
-            daemon=True
-        )
+        thread_vad = threading.Thread(target=self._monitorar_vad_thread, args=(stream_vad,), daemon=True)
         thread_vad.start()
-
         out_stream_ref = [None]
-
         def _tocar():
             while True:
                 item = fila_play.get()
@@ -315,39 +268,34 @@ class AudioHandler:
                     break
                 audio_bytes, sr_chunk = item
                 if out_stream_ref[0] is None:
-                    out_stream_ref[0] = self.pa.open(
-                        format=pyaudio.paInt16, channels=1,
-                        rate=sr_chunk, output=True)
-                if not self.interrompido:
-                    out_stream_ref[0].write(audio_bytes)
-                del audio_bytes
+                    out_stream_ref[0] = self.pa.open(format=pyaudio.paInt16, channels=1, rate=sr_chunk, output=True)
+                chunk_size = 4096
+                for i in range(0, len(audio_bytes), chunk_size):
+                    if self.interrompido:
+                        break
+                    out_stream_ref[0].write(audio_bytes[i:i + chunk_size])
             if out_stream_ref[0]:
                 out_stream_ref[0].stop_stream()
                 out_stream_ref[0].close()
-
         thread_play = threading.Thread(target=_tocar, daemon=True)
         thread_play.start()
-
-        acumulador = io.BytesIO()
-        async for chunk in comunicar.stream():
+        for sentenca in sentencas:
             if self.interrompido:
                 break
-            if chunk["type"] == "audio":
-                acumulador.write(chunk["data"])
-                if acumulador.tell() >= BUFFER_TTS_BYTES:
-                    try:
-                        fila_play.put(self._processar_chunk(acumulador.getvalue()))
-                    except Exception as e:
-                        print(f"[TTS CHUNK] {e}")
-                    acumulador = io.BytesIO()
-
-        if acumulador.tell() > 0 and not self.interrompido:
-            try:
-                fila_play.put(self._processar_chunk(acumulador.getvalue()))
-            except Exception as e:
-                logger.debug("TTS chunk final: %s", e)
-        acumulador.close()
-
+            comunicar = edge_tts.Communicate(sentenca, CONF["voice"], **params)
+            acumulador = io.BytesIO()
+            async for chunk in comunicar.stream():
+                if self.interrompido:
+                    break
+                if chunk["type"] == "audio":
+                    acumulador.write(chunk["data"])
+            if acumulador.tell() > 0 and not self.interrompido:
+                try:
+                    audio_proc = self._processar_chunk(acumulador.getvalue())
+                    fila_play.put(audio_proc)
+                except Exception as e:
+                    logger.error("Erro MP3 ignorado: %s", e)
+            acumulador.close()
         fila_play.put(None)
         thread_play.join()
         self.falando = False
@@ -356,17 +304,12 @@ class AudioHandler:
     def falar(self, texto, emocao="neutro"):
         if not texto:
             return False
-
-        txt = html.unescape(texto.replace("... ", ", hmmm... ")).replace(
-            "<", "").replace(">", "").strip()
+        txt = html.unescape(texto.replace("... ", ", hmmm... ")).replace("<", "").replace(">", "").strip()
         print(f"[REGISTRO] Falando: {txt}...")
-
         if not _EDGETTS_OK:
             print("[TTS] Sem engine disponivel.")
             return False
-
         params = EMOCOES_EDGE.get(emocao, EMOCOES_EDGE["neutro"])
-
         async def _executar():
             try:
                 if self.interrompido:
@@ -375,7 +318,6 @@ class AudioHandler:
             except Exception as e:
                 print(f"[ERRO TTS] {e}")
                 return False
-
         future = asyncio.run_coroutine_threadsafe(_executar(), self._loop)
         return future.result()
 
@@ -408,7 +350,6 @@ class AudioHandler:
                     res = json.loads(self.rec_vosk.Result())
                 else:
                     res = json.loads(self.rec_vosk.PartialResult())
-
                 if "registro" in res.get("text", "") or "registro" in res.get("partial", ""):
                     self.rec_vosk.Reset()
                     return True
@@ -430,26 +371,20 @@ class AudioHandler:
         if not self.recorder and self.stream_vad and not self.stream_vad.is_stopped():
             self.stream_vad.stop_stream()
         print("[REGISTRO] Ouvindo comando...")
-
         if self.recorder:
             timeout = float(settings.get("stt_recorder_timeout_sec") or 60.0)
             timeout = max(15.0, min(180.0, timeout))
             caixa = {"texto": None, "erro": None}
-
             def _rec_text():
                 try:
                     caixa["texto"] = self.recorder.text()
                 except Exception as e:
                     caixa["erro"] = e
-
             th = threading.Thread(target=_rec_text, daemon=True)
             th.start()
             th.join(timeout=timeout)
             if th.is_alive():
-                logger.warning(
-                    "RealtimeSTT excedeu %.0fs; usando gravacao VAD/Whisper.",
-                    timeout,
-                )
+                logger.warning("RealtimeSTT excedeu %.0fs; usando gravacao VAD/Whisper.", timeout)
             elif caixa["erro"]:
                 print(f"[REALTIME] Erro: {caixa['erro']}")
             elif caixa["texto"]:
@@ -459,9 +394,7 @@ class AudioHandler:
                     if self.stream_vad and self.stream_vad.is_stopped():
                         self.stream_vad.start_stream()
                     return t
-
         audio_np = self._gravar_com_vad_manual()
-
         if audio_np is None:
             try:
                 self.rec_sr.energy_threshold = settings.get("energia_microfone")
@@ -478,12 +411,10 @@ class AudioHandler:
                 if self.stream_vad and self.stream_vad.is_stopped():
                     self.stream_vad.start_stream()
                 return None
-
         if audio_np is None or len(audio_np) == 0:
             if self.stream_vad and self.stream_vad.is_stopped():
                 self.stream_vad.start_stream()
             return None
-
         if self.whisper:
             try:
                 beam = int(settings.get("whisper_beam_size") or 3)
@@ -507,7 +438,6 @@ class AudioHandler:
                     return texto
             except Exception as e:
                 print(f"[WHISPER] Falha, usando Google: {e}")
-
         try:
             clip = np.clip(audio_np.astype(np.float32), -1.0, 1.0)
             audio_int16 = (clip * 32767.0).astype(np.int16)
@@ -529,7 +459,6 @@ class AudioHandler:
     def _gravar_com_vad_manual(self):
         if not self.vad_model:
             return None
-
         if self._stream_gravacao is None:
             try:
                 self._stream_gravacao = self.pa.open(
@@ -547,14 +476,12 @@ class AudioHandler:
             logger.debug("gravacao start: %s", e)
             self._stream_gravacao = None
             return None
-
         frames_gravados = []
         frames_silencio = 0
         frames_voz = 0
         falando_detectado = False
         inicio = time.time()
         buf = np.empty(CONF["vad_chunk"], dtype=np.float32)
-
         limiar = float(settings.get("stt_vad_threshold") or 0.58)
         limiar = max(0.35, min(0.92, limiar))
         energia_min = float(settings.get("stt_vad_energia") or 0.06)
@@ -565,9 +492,7 @@ class AudioHandler:
         min_voz = max(2, min(15, min_voz))
         max_espera = float(settings.get("stt_max_espera_seg") or 10.0)
         max_espera = max(5.0, min(25.0, max_espera))
-
         print("[VAD] Aguardando voz...")
-
         while True:
             if time.time() - inicio > max_espera:
                 break
@@ -576,17 +501,13 @@ class AudioHandler:
             except Exception as e:
                 logger.debug("gravacao read: %s", e)
                 break
-
             np.copyto(buf, np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0)
             energia = np.sqrt(np.mean(buf ** 2))
-
             with torch.no_grad():
                 tensor = torch.from_numpy(buf)
                 conf = self.vad_model(tensor, 16000).item()
                 del tensor
-
             eh_voz = conf > limiar and energia > energia_min
-
             if eh_voz:
                 if not falando_detectado:
                     falando_detectado = True
@@ -600,9 +521,7 @@ class AudioHandler:
                 if frames_silencio >= frames_fim:
                     print("[VAD] Fim de fala.")
                     break
-
         if frames_voz < min_voz:
             return None
-
         audio_bytes = b"".join(frames_gravados)
         return np.frombuffer(audio_bytes, np.int16).astype(np.float32) / 32768.0
