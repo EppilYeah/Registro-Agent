@@ -24,7 +24,6 @@ _PADROES = {
     "whisper_modelo": "base",
     "whisper_device": "cpu",
     "whisper_beam_size": 3,
-    # VAD só para gravar comando (pt-BR); mais sensível que o VAD de interromper TTS
     "stt_vad_threshold": 0.58,
     "stt_vad_energia": 0.06,
     "stt_frames_silencio_fim": 34,

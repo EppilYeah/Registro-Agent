@@ -80,7 +80,7 @@ class Systemhandler:
 
     def volume_pc(self, modo: str, valor: float = 0.0) -> str:
         if not self.volume_control:
-            return "Erro: Driver de áudio não disponível. Execute como administrador."
+            return "Erro: Driver de áudio não disponível. Execute como admin"
         try:
             valor_float = float(valor) if valor is not None else 0.0
             valor_os = valor_float / 100.0

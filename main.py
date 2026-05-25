@@ -35,7 +35,7 @@ def _js(codigo):
     try:
         if _JANELA: _JANELA.evaluate_js(codigo)
     except Exception as e:
-        print(f"[JS] Erro ao executar '{codigo}': {e}")
+        print(f"[JS] '{codigo}': {e}")
 
 def _atualizar_rosto(emocao, falando):
     _js(f"window.jsAtualizarRosto('{emocao}', {'true' if falando else 'false'})")
