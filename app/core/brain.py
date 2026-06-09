@@ -55,7 +55,7 @@ class Brain:
     def sistema(self, valor):
         self._sistema = valor
         if valor:
-            print("[BRAIN] Conectando corpo fisico (Piloto Automatico) ao cortex...")
+            print("Conectando ...")
             self.chat = self._encontrar_combinacao_funcional()
 
     def _log_chaves(self):
