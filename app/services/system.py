@@ -19,6 +19,23 @@ from comtypes import CoCreateInstance, GUID
 
 logger = logging.getLogger(__name__)
 
+
+def _aplicar_descricoes_ferramentas(skills):
+    """Copia as descriptions de config.LISTA_FERRAMENTAS para os callables do AFC."""
+    for tool in getattr(config, "LISTA_FERRAMENTAS", []) or []:
+        for decl in getattr(tool, "function_declarations", None) or []:
+            fn = skills.get(getattr(decl, "name", ""))
+            if not fn:
+                continue
+            desc = getattr(decl, "description", None)
+            if not desc:
+                continue
+            alvo = getattr(fn, "__func__", fn)
+            try:
+                alvo.__doc__ = desc
+            except Exception:
+                pass
+
 class Systemhandler:
     def __init__(
         self,
@@ -28,6 +45,8 @@ class Systemhandler:
         funcao_brain_client=None,
         funcao_modelo_gemini=None,
         funcao_encerramento_graceful=None,
+        palace=None,
+        brain=None,
     ):
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 1.0
@@ -38,6 +57,8 @@ class Systemhandler:
         self.funcao_brain_client = funcao_brain_client
         self.funcao_modelo_gemini = funcao_modelo_gemini
         self.funcao_encerramento_graceful = funcao_encerramento_graceful
+        self.palace = palace
+        self.brain = brain
         self.volume_control = None
 
         self._inicializar_audio()
@@ -60,6 +81,14 @@ class Systemhandler:
             "vasculhar_memoria": self.vasculhar_memoria,
             "arquivar_memoria_vetorial": self.arquivar_memoria_vetorial,
         }
+        _aplicar_descricoes_ferramentas(self.skills)
+
+    def _obter_palace(self):
+        if self.palace is not None:
+            return self.palace
+        from app.core.palace import palace_compartilhado
+        self.palace = palace_compartilhado()
+        return self.palace
 
     def _inicializar_audio(self):
         try:
@@ -279,14 +308,19 @@ class Systemhandler:
 
     def consultar_perfil_usuario(self, campo: str = "") -> str:
         try:
-            import os, json
-            raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            caminho = os.path.join(raiz, "data", "usuario.json")
-            with open(caminho, 'r', encoding='utf-8') as f:
-                dados = json.load(f)
+            import json
+            if self.brain is not None:
+                dados = self.brain._carregar_usuario()
+            else:
+                raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                caminho = os.path.join(raiz, "data", "usuario.json")
+                with open(caminho, "r", encoding="utf-8") as f:
+                    dados = json.load(f)
+            if not dados:
+                return "Perfil do usuário ainda não existe."
             if not campo:
                 resultado = {k: v for k, v in dados.items() if k != "ultima_atualizacao"}
-                return json.dumps(resultado, ensure_ascii=False)
+                return json.dumps(resultado, ensure_ascii=False) if resultado else "Perfil vazio."
             valor = dados.get(campo)
             if valor is None:
                 return f"Campo '{campo}' não encontrado no perfil."
@@ -298,19 +332,24 @@ class Systemhandler:
 
     def salvar_dado_usuario(self, chave: str, valor: str) -> str:
         try:
-            import os, json
+            import json
+            if self.brain is not None:
+                dados = self.brain._carregar_usuario()
+                dados[chave] = valor
+                dados["ultima_atualizacao"] = str(datetime.datetime.now())[:16]
+                self.brain._salvar_usuario(dados)
+                return f"Sucesso: A chave '{chave}' foi salva permanentemente como '{valor}'."
             raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             caminho = os.path.join(raiz, "data", "usuario.json")
             try:
-                with open(caminho, 'r', encoding='utf-8') as f:
+                with open(caminho, "r", encoding="utf-8") as f:
                     dados = json.load(f)
             except FileNotFoundError:
                 dados = {}
-            
             dados[chave] = valor
             dados["ultima_atualizacao"] = str(datetime.datetime.now())[:16]
-            
-            with open(caminho, 'w', encoding='utf-8') as f:
+            os.makedirs(os.path.dirname(caminho), exist_ok=True)
+            with open(caminho, "w", encoding="utf-8") as f:
                 json.dump(dados, f, indent=2, ensure_ascii=False)
             return f"Sucesso: A chave '{chave}' foi salva permanentemente como '{valor}'."
         except Exception as e:
@@ -318,23 +357,17 @@ class Systemhandler:
 
     def vasculhar_memoria(self, query: str) -> str:
         try:
-            from app.core.palace import RegistroPalace
-            palace = RegistroPalace()
-            resultados = palace.recuperar(query, limit=10) 
-            
+            resultados = self._obter_palace().recuperar(query, limit=10)
             if not resultados:
                 return f"Nenhum registro vetorial encontrado para a query: '{query}'."
-            
             compilado = "\n".join(f"- {res}" for res in resultados)
             return f"Resultados da memória:\n{compilado}"
         except Exception as e:
             return f"Falha na consulta ao banco vetorial: {e}"
-        
+
     def arquivar_memoria_vetorial(self, texto_para_salvar: str, wing: str, room: str) -> str:
         try:
-            from app.core.palace import RegistroPalace
-            palace = RegistroPalace()
-            palace.guardar(texto_para_salvar, autor="REGISTRO_ARQUIVISTA", wing=wing, room=room)
+            self._obter_palace().guardar(texto_para_salvar, autor="REGISTRO_ARQUIVISTA", wing=wing, room=room)
             return f"Informação salva com sucesso na Ala '{wing}', Sala '{room}'."
         except Exception as e:
             return f"Erro ao arquivar no banco vetorial: {e}"

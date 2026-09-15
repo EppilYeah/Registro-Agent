@@ -1,0 +1,1 @@
+# Núcleo: cérebro, áudio, memória.
