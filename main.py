@@ -3,6 +3,7 @@ import webview
 import threading
 import time
 import os
+import sys
 import settings
 from multiprocessing import freeze_support
 from app.core.brain import Brain
@@ -233,6 +234,8 @@ if __name__ == "__main__":
         funcao_brain_client=brain.client,
         funcao_modelo_gemini=lambda: brain.modelo_nome,
         funcao_encerramento_graceful=_encerramento_graceful,
+        palace=brain.palace,
+        brain=brain,
     )
     brain.sistema = sistema
 
@@ -246,4 +249,9 @@ if __name__ == "__main__":
     thread_alma = threading.Thread(target=ciclo_principal, daemon=True)
     thread_alma.start()
 
-    webview.start(gui='edgechromium')
+    gui = "edgechromium" if sys.platform == "win32" else None
+    try:
+        webview.start(gui=gui)
+    except Exception as e:
+        logger.warning("webview.start(%s) falhou (%s); tentando backend padrão.", gui, e)
+        webview.start()
