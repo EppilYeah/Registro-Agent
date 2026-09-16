@@ -5,13 +5,21 @@ import time
 import random
 import threading
 import traceback
-import sys
 import config
 import settings
 from datetime import datetime, date
 from google import genai
 from google.genai import types
 from app.core.palace import palace_compartilhado
+from app.core.quota import QuotaError, eh_erro_quota, esperar_retry_after, extrair_retry_after
+from app.core.roteador import (
+    chave_gemini_unica,
+    groq_modelo,
+    groq_ok,
+    ollama_host,
+    ollama_modelo,
+    ordem_provedores,
+)
 from app.core.resposta import (
     WINGS_VALIDAS,
     ROOMS_VALIDAS,
@@ -29,9 +37,17 @@ os.environ["CHROMADB_TELEMETRY"] = "False"
 
 logger = logging.getLogger(__name__)
 
-_MAX_RESETS_QUOTA = 2
 _MAX_TURNOS_HISTORICO = 12
 _MAX_CACHE_MEMORIA = 24
+
+
+def _eh_falha_de_rede(erro) -> bool:
+    texto = str(erro or "").lower()
+    return any(x in texto for x in (
+        "connection", "refused", "timed out", "timeout", "unreachable",
+        "indisponivel", "ausente", "nameresolution", "failed to establish",
+        "http 404", "http 502", "http 503", "http 504",
+    ))
 
 
 class Brain:
@@ -51,7 +67,9 @@ class Brain:
         self._sessao_atual = []
         self._sistema = None
         self._log_chaves()
-        self.chat = self._encontrar_combinacao_funcional() if conectar else None
+        self.chat = None
+        if conectar:
+            self._preparar_provedores()
         self._callback_espontaneo = None
         self._thread_espontaneo = None
         self._ultimo_espontaneo = 0
@@ -68,26 +86,34 @@ class Brain:
         self._sistema = valor
         if valor:
             print("Conectando ...")
-            self.chat = self._encontrar_combinacao_funcional()
+            self._preparar_provedores()
 
     def _log_chaves(self):
-        n = len(config.API_KEYS) if config.API_KEYS else (1 if config.API_KEY else 0)
-        print(f"\n{'='*60}\nCHAVES API CARREGADAS: {n}\n{'='*60}\n")
+        gemini = chave_gemini_unica()
+        n_gemini = 1 if gemini else 0
+        extras = max(0, len(config.API_KEYS) - 1) if config.API_KEYS else 0
+        print(f"\n{'='*60}")
+        print(f"GROQ: {'sim' if groq_ok() else 'nao'} | GEMINI: {n_gemini} chave(s) efetiva(s) | OLLAMA CPU: {ollama_modelo()}")
+        if extras:
+            print("AVISO: chaves extras no mesmo projeto Gemini nao aumentam cota.")
+        print(f"{'='*60}\n")
 
     def _chaves_disponiveis(self):
-        if config.API_KEYS:
-            return [k for k in config.API_KEYS if k]
-        if config.API_KEY:
-            return [config.API_KEY]
-        return []
+        k = chave_gemini_unica()
+        return [k] if k else []
 
-    def _aguardar_reset(self):
-        print("\n[QUOTA] Aguardando reset (60s)...")
-        for i in range(60, 0, -1):
-            sys.stdout.write(f"\rReset em: {i//60:02d}:{i % 60:02d} ")
-            sys.stdout.flush()
-            time.sleep(1)
-        print("\nQuota resetada.\n")
+    def _ordem_efetiva(self):
+        tem_gemini = bool(chave_gemini_unica()) or bool(self.chat) or bool(self.client)
+        return ordem_provedores(tem_groq=groq_ok(), tem_gemini=tem_gemini)
+
+    def _preparar_provedores(self):
+        ordem = self._ordem_efetiva()
+        print("[LLM] Roteador: " + " -> ".join(ordem) + " (8B so na CPU)")
+        if groq_ok():
+            print(f"[LLM] Groq diario: {groq_modelo()}")
+        if chave_gemini_unica():
+            print("[LLM] Gemini sob demanda (cota por projeto; sem ping de cota na subida).")
+        print(f"[LLM] Ollama fallback CPU: {ollama_modelo()} @ {ollama_host()} (num_gpu=0)")
 
     def _tools_gemini(self):
         if self._sistema and getattr(self._sistema, "skills", None):
@@ -122,54 +148,44 @@ class Brain:
             kwargs["response_mime_type"] = "application/json"
         return types.GenerateContentConfig(**kwargs)
 
-    def _encontrar_combinacao_funcional(self):
-        todas_chaves = self._chaves_disponiveis()
-        if not todas_chaves:
-            print("[API] Nenhuma chave Gemini configurada (GEMINI_KEYS_ROTATION / GEMINI_API_KEY).")
+    def _conectar_gemini(self):
+        chave = chave_gemini_unica()
+        if not chave:
+            print("[API] Nenhuma chave Gemini (GEMINI_API_KEY).")
             return None
         preferido = settings.get("modelo")
         todos_modelos = list(config.LISTA_MODELOS)
         if preferido:
             todos_modelos = [preferido] + [m for m in todos_modelos if m != preferido]
         config_obj = self._config_geracao()
-        tentativas_reset = 0
-        while tentativas_reset <= _MAX_RESETS_QUOTA:
-            for idx_chave, chave in enumerate(todas_chaves):
-                client = genai.Client(api_key=chave)
-                print(f"\n[API] Chave {idx_chave + 1}/{len(todas_chaves)}: ...{chave[-4:]}")
-                for modelo in todos_modelos:
-                    try:
-                        print(f"  [{modelo}]...", end=" ", flush=True)
-                        client.models.generate_content(
-                            model=modelo,
-                            contents=".",
-                            config=types.GenerateContentConfig(max_output_tokens=1)
-                        )
-                        chat = client.chats.create(
-                            model=modelo,
-                            config=config_obj,
-                            history=self.carregar_memoria(),
-                        )
-                        self.client = client
-                        self.modelo_nome = modelo
-                        print("OK")
-                        return chat
-                    except Exception as e:
-                        erro = str(e).lower()
-                        if any(x in erro for x in ["429", "quota", "resource_exhausted"]):
-                            print("SEM COTA")
-                        else:
-                            print(f"ERRO: {e}")
-            tentativas_reset += 1
-            if tentativas_reset <= _MAX_RESETS_QUOTA:
-                self._aguardar_reset()
-        print("[API] Falha ao conectar após tentativas de quota.")
+        client = genai.Client(api_key=chave)
+        print("[API] Gemini: uma chave (cota por projeto, nao por rotacao). Sem ping de cota.")
+        for modelo in todos_modelos:
+            try:
+                print(f"  [{modelo}]...", end=" ", flush=True)
+                chat = client.chats.create(
+                    model=modelo,
+                    config=config_obj,
+                    history=self.carregar_memoria(),
+                )
+                self.client = client
+                self.modelo_nome = modelo
+                self.chat = chat
+                print("OK")
+                return chat
+            except Exception as e:
+                if eh_erro_quota(e):
+                    print("SEM COTA")
+                    print("[API] Gemini 429 — Groq/Ollama cobrem o dia. Sem espera de 60s.")
+                    return None
+                print(f"ERRO: {e}")
         return None
+
+    def _encontrar_combinacao_funcional(self):
+        return self._conectar_gemini()
 
     def gerar_despedida(self):
         try:
-            if not self.client or not self.modelo_nome:
-                return "Ate logo."
             if not self._sessao_atual:
                 return "Ate logo."
             trocas = [d["texto"][:80] for d in self._sessao_atual[-4:]]
@@ -180,12 +196,8 @@ class Brain:
                 "Deve referenciar algo especifico que aconteceu na sessao. "
                 "Estilo: direto, seco, profissional. Maximo 15 palavras. SEM JSON."
             )
-            response = self.client.models.generate_content(
-                model=self.modelo_nome,
-                contents=prompt,
-                config=types.GenerateContentConfig(max_output_tokens=40, temperature=0.8)
-            )
-            return (response.text or "Ate logo.").strip()
+            texto = self._completar_texto(prompt, max_tokens=40)
+            return texto or "Ate logo."
         except Exception as e:
             logger.warning("gerar_despedida: %s", e)
             return "Ate logo."
@@ -372,7 +384,7 @@ class Brain:
             print(f"[USUARIO] Erro ao salvar: {e}")
 
     def atualizar_dicionario_usuario(self):
-        if self._requisicoes_sessao < 3 or not self.client or not self.modelo_nome:
+        if self._requisicoes_sessao < 3:
             return
         try:
             atual = self._carregar_usuario()
@@ -386,12 +398,8 @@ class Brain:
                 f"Perfil atual: {json.dumps(atual, ensure_ascii=False)}\n"
                 f"Conversa:\n{trecho}"
             )
-            response = self.client.models.generate_content(
-                model=self.modelo_nome,
-                contents=prompt,
-                config=types.GenerateContentConfig(max_output_tokens=300, temperature=0.2)
-            )
-            novo = parsear_objeto_json(getattr(response, "text", "") or "")
+            bruto = self._completar_texto(prompt, max_tokens=300)
+            novo = parsear_objeto_json(bruto or "")
             if not novo or eh_perfil_resposta_llm(novo):
                 return
             atual = mesclar_perfil_usuario(atual, novo)
@@ -437,11 +445,9 @@ class Brain:
 
     def _disparar_espontaneo(self):
         try:
-            if not self.client or not self.modelo_nome:
-                return
-            prompt = "Gere uma observacao curta e espontanea do REGISTRO. Estilo seco. Sem JSON."
-            response = self.client.models.generate_content(model=self.modelo_nome, contents=prompt)
-            texto = (getattr(response, "text", "") or "").strip()
+            texto = self._completar_texto(
+                "Gere uma observacao curta e espontanea do REGISTRO. Estilo seco. Sem JSON."
+            )
             if texto and self._callback_espontaneo:
                 self._callback_espontaneo(texto, "neutro")
                 self._ultimo_espontaneo = time.time()
@@ -506,34 +512,15 @@ class Brain:
             logger.warning("pedir json final: %s", e)
             return None
 
-    def processar_entrada(self, prompt, on_resposta=None, tentativa=0):
-        self.marcar_interacao()
-        n_chaves = max(1, len(self._chaves_disponiveis()))
-        limite_tentativas = n_chaves * len(config.LISTA_MODELOS) + 1
-        if tentativa >= limite_tentativas:
-            dados = {"emocao": "confuso", "texto_resposta": "Cotas esgotadas em todos os modelos."}
-            if on_resposta:
-                on_resposta(dados)
-            return dados
-        if not self.chat or not self.client:
+    def _processar_gemini(self, prompt_efetivo):
+        if not self.chat:
             self.chat = self._encontrar_combinacao_funcional()
         if not self.chat:
-            dados = {"emocao": "confuso", "texto_resposta": "Sem conexao com o modelo Gemini."}
-            if on_resposta:
-                on_resposta(dados)
-            return dados
-        self._verificar_rate_limit()
-        prompt_efetivo = self._montar_prompt_turno(prompt)
-        if tentativa == 0:
-            self._registrar_memoria(prompt, self._autor_usuario_memoria())
-        self.contador_requisicoes += 1
+            raise RuntimeError("Gemini indisponivel")
         try:
             res = self.chat.send_message(prompt_efetivo)
             if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
-                self.chat = self._encontrar_combinacao_funcional()
                 dados = {"emocao": "irritado", "texto_resposta": "Resposta bloqueada por seguranca."}
-                if on_resposta:
-                    on_resposta(dados)
                 return dados
             texto = self._extrair_texto(res)
             if not texto:
@@ -547,34 +534,131 @@ class Brain:
                 extra = self._extrair_texto(follow) if follow is not None else ""
                 if extra:
                     dados = self._parsear_json(extra)
-            self._atualizar_perfil_emocao(dados.get("emocao", "neutro"))
-            if tentativa == 0:
-                self._registrar_memoria(dados.get("texto_resposta", ""), "REGISTRO")
-            if on_resposta:
-                on_resposta(dados)
             return dados
+        except QuotaError:
+            raise
         except Exception as e:
-            erro_str = str(e).lower()
-            if any(x in erro_str for x in ["429", "quota", "503", "unavailable"]):
-                print("[RECONECTANDO] Servidor ocupado ou cota excedida. Tentando nova chave...")
-                time.sleep(2)
-                self.chat = self._encontrar_combinacao_funcional()
-                return self.processar_entrada(prompt, on_resposta, tentativa + 1)
+            if eh_erro_quota(e):
+                raise QuotaError(str(e), retry_after=extrair_retry_after(e), provedor="gemini") from e
+            raise
+
+    def _processar_groq(self, prompt_efetivo):
+        from app.core.chat_compat import completar_com_tools, tools_para_openai
+        if not groq_ok():
+            raise RuntimeError("GROQ_API_KEY ausente")
+        skills = self._sistema.skills if self._sistema else {}
+        return completar_com_tools(
+            provedor="groq",
+            system=self._instrucao_sistema(),
+            user=prompt_efetivo,
+            skills=skills,
+            tools_openai=tools_para_openai(config.LISTA_FERRAMENTAS) if skills else [],
+            modelo=groq_modelo(),
+            api_key=config.GROQ_API_KEY,
+        )
+
+    def _processar_ollama(self, prompt_efetivo):
+        from app.core.chat_compat import completar_com_tools, tools_para_openai
+        skills = self._sistema.skills if self._sistema else {}
+        return completar_com_tools(
+            provedor="ollama",
+            system=self._instrucao_sistema(),
+            user=prompt_efetivo,
+            skills=skills,
+            tools_openai=tools_para_openai(config.LISTA_FERRAMENTAS) if skills else [],
+            modelo=ollama_modelo(),
+            host=ollama_host(),
+        )
+
+    def _completar_texto(self, prompt, max_tokens=80):
+        from app.core.chat_compat import groq_chat, ollama_chat
+        for provedor in self._ordem_efetiva():
+            try:
+                if provedor == "groq" and groq_ok():
+                    texto, _ = groq_chat(
+                        [{"role": "user", "content": prompt}],
+                        modelo=groq_modelo(),
+                        api_key=config.GROQ_API_KEY,
+                    )
+                    return (texto or "").strip()
+                if provedor == "gemini":
+                    if not (self.client and self.modelo_nome):
+                        self._conectar_gemini()
+                    if self.client and self.modelo_nome:
+                        response = self.client.models.generate_content(
+                            model=self.modelo_nome,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(max_output_tokens=max_tokens, temperature=0.8),
+                        )
+                        return (getattr(response, "text", None) or "").strip()
+                if provedor == "ollama":
+                    texto, _ = ollama_chat(
+                        [{"role": "user", "content": prompt}],
+                        host=ollama_host(),
+                        modelo=ollama_modelo(),
+                    )
+                    return (texto or "").strip()
+            except QuotaError as e:
+                esperar_retry_after(e, provedor=provedor)
+            except Exception as e:
+                if eh_erro_quota(e):
+                    esperar_retry_after(e, provedor=provedor)
+                    continue
+                logger.debug("completar_texto %s: %s", provedor, e)
+        return ""
+
+    def processar_entrada(self, prompt, on_resposta=None, tentativa=0):
+        self.marcar_interacao()
+        ordem = self._ordem_efetiva()
+        if tentativa == 0:
+            self._registrar_memoria(prompt, self._autor_usuario_memoria())
+        self.contador_requisicoes += 1
+        prompt_efetivo = self._montar_prompt_turno(prompt)
+        ultimo_erro = None
+        for provedor in ordem:
+            try:
+                print(f"[LLM] provedor={provedor}")
+                if provedor == "groq":
+                    dados = self._processar_groq(prompt_efetivo)
+                elif provedor == "gemini":
+                    dados = self._processar_gemini(prompt_efetivo)
+                else:
+                    dados = self._processar_ollama(prompt_efetivo)
+                self._atualizar_perfil_emocao(dados.get("emocao", "neutro"))
+                if tentativa == 0:
+                    self._registrar_memoria(dados.get("texto_resposta", ""), "REGISTRO")
+                if on_resposta:
+                    on_resposta(dados)
+                return dados
+            except QuotaError as e:
+                ultimo_erro = e
+                esperar_retry_after(e, provedor=provedor)
+            except Exception as e:
+                ultimo_erro = e
+                if eh_erro_quota(e):
+                    esperar_retry_after(e, provedor=provedor)
+                    continue
+                logger.warning("provedor %s falhou (%s); tentando o proximo", provedor, e)
+                continue
+        dados = {
+            "emocao": "confuso",
+            "texto_resposta": "Sem conexao com Groq, Gemini ou Ollama.",
+        }
+        if ultimo_erro and eh_erro_quota(ultimo_erro):
+            dados["texto_resposta"] = "Cota esgotada em Groq e Gemini. Ollama CPU tambem falhou."
+        elif ultimo_erro and not _eh_falha_de_rede(ultimo_erro):
             traceback.print_exc()
-            dados = {"emocao": "confuso", "texto_resposta": "Falha no processamento interno."}
-            if on_resposta:
-                on_resposta(dados)
-            return dados
+            dados["texto_resposta"] = "Falha no processamento interno."
+        if on_resposta:
+            on_resposta(dados)
+        return dados
 
     def gerar_texto_aleatorio(self, tema):
         try:
-            if not self.client or not self.modelo_nome:
-                return f"Lembrete: {tema}"
-            response = self.client.models.generate_content(
-                model=self.modelo_nome,
-                contents=f'Voce e REGISTRO. Lembrete: "{tema}". Frase curta. SEM JSON.',
-                config=types.GenerateContentConfig(max_output_tokens=60)
+            texto = self._completar_texto(
+                f'Voce e REGISTRO. Lembrete: "{tema}". Frase curta. SEM JSON.',
+                max_tokens=60,
             )
-            return (getattr(response, "text", None) or f"Lembrete: {tema}").strip()
+            return texto or f"Lembrete: {tema}"
         except Exception:
             return f"Lembrete: {tema}"

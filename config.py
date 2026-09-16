@@ -11,6 +11,12 @@ API_KEY_ATUAL = -1
 
 API_KEY = API_KEYS[0] if API_KEYS else os.getenv("GEMINI_API_KEY")
 
+GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()  # console.groq.com/keys — .env na raiz
+GROQ_MODELO = (os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b").strip()
+GROQ_WHISPER_MODELO = (os.getenv("GROQ_WHISPER_MODEL") or "whisper-large-v3-turbo").strip()
+OLLAMA_HOST = (os.getenv("OLLAMA_HOST") or "http://127.0.0.1:11434").strip()
+OLLAMA_MODELO = (os.getenv("OLLAMA_MODEL") or "qwen3:8b").strip()
+
 MODO_DEBUG = False
 LISTA_MODELOS = [
     "gemini-2.5-flash",
