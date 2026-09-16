@@ -211,8 +211,8 @@
                     <select class="eva-select" id="select-whisper_modelo"
                             onchange="updateConfig('whisper_modelo', this.value)">
                         <option value="tiny">TINY (CPU rápido)</option>
-                        <option value="base" selected>BASE (CPU padrão)</option>
-                        <option value="small">SMALL (GPU recomendado)</option>
+                        <option value="base">BASE (não recomendado)</option>
+                        <option value="small" selected>SMALL (GPU recomendado)</option>
                         <option value="medium">MEDIUM (GPU alta precisão)</option>
                     </select>
                 </div>
@@ -221,9 +221,21 @@
                     <span class="eva-label">DEVICE</span>
                     <select class="eva-select" id="select-whisper_device"
                             onchange="updateConfig('whisper_device', this.value)">
-                        <option value="cpu" selected>CPU</option>
-                        <option value="cuda">CUDA (GPU)</option>
+                        <option value="cpu">CPU</option>
+                        <option value="cuda" selected>CUDA (GPU)</option>
+                        <option value="groq">GROQ WHISPER (nuvem)</option>
                     </select>
+                </div>
+
+                <div class="eva-field">
+                    <span class="eva-label">GROQ STT SE CUDA OCUPADA</span>
+                    <div class="eva-toggle active" id="toggle-stt_groq_se_cuda_ocupada"
+                         onclick="toggleConfig('stt_groq_se_cuda_ocupada', this)">
+                        <div class="eva-toggle-track">
+                            <div class="eva-toggle-thumb"></div>
+                        </div>
+                        <span id="lbl-stt_groq_se_cuda_ocupada">ATIVO</span>
+                    </div>
                 </div>
 
             </div>
@@ -262,6 +274,16 @@
                     <span class="eva-badge">ONLINE</span>
                 </div>
                 <div class="eva-panel-body">
+                    <div class="eva-field">
+                        <span class="eva-label">PROVEDOR LLM</span>
+                        <select class="eva-select" id="select-llm_provedor"
+                                onchange="updateConfig('llm_provedor', this.value)">
+                            <option value="auto" selected>AUTO (GROQ → GEMINI → OLLAMA CPU)</option>
+                            <option value="groq">GROQ</option>
+                            <option value="gemini">GEMINI</option>
+                            <option value="ollama">OLLAMA CPU</option>
+                        </select>
+                    </div>
                     <div class="eva-field">
                         <span class="eva-label">MODELO LLM ATIVO</span>
                         <select class="eva-select" id="select-modelo"

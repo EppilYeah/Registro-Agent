@@ -6,11 +6,21 @@
 
 O **REGISTRO** não é apenas um assistente virtual comum. Ele foi projetado pra portar substancialmente qualquer personalidade que você coloque no prompt, basta alterar o prompt principal dele no config.py
 
-O diferencial deste projeto é a integração entre uma interface visual reativa, síntese de voz com pós-processamento de áudio para dar um tom robótico e um "cérebro" alimentado pela API do Google Gemini.
+O diferencial deste projeto é a integração entre uma interface visual reativa, síntese de voz com pós-processamento de áudio para dar um tom robótico e um cérebro híbrido (Groq → Gemini → Ollama CPU).
+
+## Configuração rápida (.env na raiz)
+
+```
+GROQ_API_KEY=gsk_...
+GEMINI_API_KEY=...
+```
+
+Chave Groq: [console.groq.com/keys](https://console.groq.com/keys). Várias chaves Gemini no mesmo projeto Google Cloud **não** somam cota.
+
 
 ## Funcionalidades Principais
 
-* **Personalidade via LLM:** O sistema utiliza o Google Gemini para gerar respostas dinâmicas, seguindo um prompt de sistema rigoroso para manter o personagem.
+* **Personalidade via LLM:** Groq (comando + tools) como cérebro do dia, Gemini Flash quando houver cota, Ollama 8B **só na CPU** se os dois derem 429.
 * **Interface Visual Reativa:** Uma GUI construída com `CustomTkinter` que desenha um rosto procedural. As expressões (olhos, sobrancelhas e boca) reagem em tempo real às emoções detectadas na resposta da IA (neutro, irritado, feliz, desconfiado, etc.),
  eventualmente irei atualizar para animações em JavaScript
 * **Manipulação de Áudio Avançada:**
@@ -28,7 +38,7 @@ O diferencial deste projeto é a integração entre uma interface visual reativa
 O projeto está modularizado para facilitar o entendimento:
 
 * **main.py:** O loop principal que gerencia as threads de áudio e a interface visual.
-* **app/core/brain.py:** Gerencia a conexão com a API do Gemini, o histórico de memória (JSONL) e a lógica de "rotação de chaves" para evitar limites de uso.
+* **app/core/brain.py:** Roteador Groq → Gemini → Ollama CPU, memória e function calling. Cota Gemini é por projeto, não por chave.
 * **app/core/audio.py:** O módulo mais complexo. Lida com reconhecimento de fala (SpeechRecognition + Vosk), VAD (Voice Activity Detection) para permitir interrupções durante a fala da IA, e o processamento de efeitos sonoros.
 * **app/gui/face.py:** Desenha o rosto do assistente pixel a pixel usando Canvas, com física simples de animação para transições suaves entre emoções.
 * **app/services/system.py:** Executa os comandos reais no Windows (PyAutoGUI, PyCaw).

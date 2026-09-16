@@ -15,7 +15,10 @@ import settings
 import speech_recognition as sr
 import soundfile as sf
 import numpy as np
+import config
 from pedalboard import Pedalboard, Compressor, HighpassFilter, Gain, Limiter, PeakFilter, PitchShift, Delay, Reverb, Chorus
+from app.core.stt_vocab import LIMITE_GROQ_CHARS, montar_prompt_stt, normalizar_modelo_whisper
+from app.core.roteador import groq_ok, usar_groq_stt
 
 try:
     import edge_tts
@@ -54,13 +57,6 @@ EMOCOES_EDGE = {
 
 logger = logging.getLogger(__name__)
 
-_WHISPER_PROMPT_BASE = (
-    "Transcricao em portugues do Brasil (PT-BR). "
-    "Usuario fala portugues brasileiro informal: girias, abreviacoes, internet, tecnologia. "
-    "Exemplos: cara, mano, beleza, valeu, ta, ne, po, oxe, vei, rolê, "
-    "abre, fecha, muda, aumenta, diminui, Registro, computador."
-)
-
 class AudioHandler:
     def __init__(self, funcao_contexto_historico=None):
         self.pa = pyaudio.PyAudio()
@@ -68,6 +64,9 @@ class AudioHandler:
         self.funcao_contexto_historico = funcao_contexto_historico
         self.falando = False
         self.interrompido = False
+        self._stt_groq = False
+        _raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.caminho_usuario = os.path.join(_raiz, "data", "usuario.json")
         self._stream_gravacao = None
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(target=self._loop.run_forever, daemon=True)
@@ -108,48 +107,104 @@ class AudioHandler:
         self.rec_sr.energy_threshold = settings.get("energia_microfone")
         self.rec_sr.dynamic_energy_threshold = False
 
+    def _modelo_whisper(self):
+        return normalizar_modelo_whisper(settings.get("whisper_modelo"))
+
+    def _prompt_stt(self, groq=False):
+        ctx = ""
+        if self.funcao_contexto_historico:
+            try:
+                ctx = self.funcao_contexto_historico() or ""
+            except Exception as e:
+                logger.debug("prompt contextual STT: %s", e)
+        return montar_prompt_stt(
+            contexto=ctx,
+            usuario_path=self.caminho_usuario,
+            limite=LIMITE_GROQ_CHARS if groq else None,
+        )
+
+    def _deve_usar_groq_stt(self):
+        return usar_groq_stt()
+
     def _carregar_stt(self):
+        self._stt_groq = False
+        device = str(settings.get("whisper_device") or "cuda").lower()
+        modelo = self._modelo_whisper()
+        if self._deve_usar_groq_stt():
+            self._stt_groq = True
+            self.recorder = None
+            print("[AUDIO] CUDA ocupada ou STT Groq pedido — Whisper large-v3-turbo na nuvem.")
+            self._carregar_whisper_fallback(device_forcado="cpu")
+            return
         if _REALTIMESTT_OK:
             try:
                 post_sil = float(settings.get("stt_post_speech_silence_sec") or 0.65)
                 post_sil = max(0.35, min(1.2, post_sil))
                 silero = float(settings.get("stt_realtime_silero_sensitivity") or 0.45)
                 silero = max(0.2, min(0.8, silero))
-                self.recorder = AudioToTextRecorder(
-                    model=settings.get("whisper_modelo") or "base",
-                    language="pt",
-                    silero_sensitivity=silero,
-                    webrtc_sensitivity=2,
-                    post_speech_silence_duration=post_sil,
-                    min_length_of_recording=0.25,
-                    min_gap_between_recordings=0.0,
-                    spinner=False,
-                    enable_realtime_transcription=False,
-                )
+                beam = int(settings.get("whisper_beam_size") or 3)
+                beam = max(1, min(5, beam))
+                kwargs = {
+                    "model": modelo,
+                    "language": "pt",
+                    "silero_sensitivity": silero,
+                    "webrtc_sensitivity": 2,
+                    "post_speech_silence_duration": post_sil,
+                    "min_length_of_recording": 0.25,
+                    "min_gap_between_recordings": 0.0,
+                    "spinner": False,
+                    "enable_realtime_transcription": False,
+                    "initial_prompt": self._prompt_stt(),
+                    "beam_size": beam,
+                    "device": "cuda" if device == "cuda" else "cpu",
+                }
+                try:
+                    self.recorder = AudioToTextRecorder(**kwargs)
+                except TypeError:
+                    kwargs.pop("beam_size", None)
+                    kwargs.pop("device", None)
+                    try:
+                        self.recorder = AudioToTextRecorder(**kwargs)
+                    except TypeError:
+                        kwargs.pop("initial_prompt", None)
+                        self.recorder = AudioToTextRecorder(**kwargs)
                 self.whisper = None
-                print(f"[AUDIO] RealtimeSTT carregado (PT-BR, silencio pos-fala {post_sil:.2f}s).")
+                vocab = "vocabulario injetado" if "initial_prompt" in kwargs else "sem initial_prompt nesta versao"
+                print(f"[AUDIO] RealtimeSTT {modelo} ({kwargs.get('device', 'auto')}, PT-BR, {vocab}).")
+                return
             except Exception as e:
                 self.recorder = None
                 print(f"[AUDIO] RealtimeSTT falhou: {e}")
-                self._carregar_whisper_fallback()
+                if groq_ok():
+                    self._stt_groq = True
+                    print("[AUDIO] Fallback Groq Whisper.")
         else:
             self.recorder = None
-            self._carregar_whisper_fallback()
+        self._carregar_whisper_fallback()
 
-    def _carregar_whisper_fallback(self):
+    def _carregar_whisper_fallback(self, device_forcado=None):
         if not _WHISPER_OK:
             self.whisper = None
             print("[AUDIO] Whisper indisponivel: modulo faster_whisper ausente.")
             return
-        modelo = settings.get("whisper_modelo") or "base"
-        device = settings.get("whisper_device") or "cpu"
-        compute = "float16" if device == "cuda" else "int8"
-        try:
-            self.whisper = WhisperModel(modelo, device=device, compute_type=compute)
-            print(f"[AUDIO] Whisper {modelo} ({device}) carregado.")
-        except Exception as e:
-            self.whisper = None
-            print(f"[AUDIO] Whisper indisponivel: {e}")
+        modelo = self._modelo_whisper()
+        device = device_forcado or (settings.get("whisper_device") or "cuda")
+        if device == "groq":
+            device = "cpu"
+        ordem = [device]
+        if device == "cuda":
+            ordem.append("cpu")
+        ultimo = None
+        for dev in ordem:
+            compute = "float16" if dev == "cuda" else "int8"
+            try:
+                self.whisper = WhisperModel(modelo, device=dev, compute_type=compute)
+                print(f"[AUDIO] Whisper {modelo} ({dev}/{compute}) carregado.")
+                return
+            except Exception as e:
+                ultimo = e
+                self.whisper = None
+        print(f"[AUDIO] Whisper indisponivel: {ultimo}")
 
     def recarregar_stt(self):
         if self.recorder:
@@ -357,21 +412,48 @@ class AudioHandler:
                 logger.debug("wake_word loop: %s", e)
 
     def _construir_prompt_contextual(self):
-        prompt = _WHISPER_PROMPT_BASE
-        if self.funcao_contexto_historico:
-            try:
-                contexto = self.funcao_contexto_historico()
-                if contexto:
-                    prompt = prompt + " Contexto recente: " + contexto
-            except Exception as e:
-                logger.debug("prompt contextual STT: %s", e)
-        return prompt
+        return self._prompt_stt(groq=False)
+
+    def _np_para_wav(self, audio_np, sr_rate=16000):
+        import wave
+        clip = np.clip(audio_np.astype(np.float32), -1.0, 1.0)
+        int16 = (clip * 32767.0).astype(np.int16)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(sr_rate)
+            w.writeframes(int16.tobytes())
+        return buf.getvalue()
+
+    def _transcrever_groq(self, audio_np):
+        from app.core.chat_compat import transcrever_groq_wav
+        wav = self._np_para_wav(audio_np, CONF["rate"])
+        texto = transcrever_groq_wav(
+            wav,
+            api_key=config.GROQ_API_KEY,
+            prompt=self._prompt_stt(groq=True),
+            modelo=config.GROQ_WHISPER_MODELO,
+        )
+        return (texto or "").strip()
 
     def ouvir_comando(self):
         if not self.recorder and self.stream_vad and not self.stream_vad.is_stopped():
             self.stream_vad.stop_stream()
         print("[REGISTRO] Ouvindo comando...")
-        if self.recorder:
+        if self._deve_usar_groq_stt():
+            audio_np = self._gravar_com_vad_manual()
+            if audio_np is not None and len(audio_np) > 0:
+                try:
+                    t = self._transcrever_groq(audio_np)
+                    if t:
+                        print(f"[GROQ-STT] {t}")
+                        if self.stream_vad and self.stream_vad.is_stopped():
+                            self.stream_vad.start_stream()
+                        return t
+                except Exception as e:
+                    logger.warning("Groq STT falhou, caindo no Whisper local: %s", e)
+        if self.recorder and not self._deve_usar_groq_stt():
             timeout = float(settings.get("stt_recorder_timeout_sec") or 60.0)
             timeout = max(15.0, min(180.0, timeout))
             caixa = {"texto": None, "erro": None}

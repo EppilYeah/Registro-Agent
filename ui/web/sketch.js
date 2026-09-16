@@ -267,6 +267,7 @@ function sincronizarUI(cfg) {
     sincronizarToggle('camera_ativa', cfg.camera_ativa !== false);
     sincronizarToggle('modo_debug', cfg.modo_debug === true);
     sincronizarToggle('comportamento_espontaneo', cfg.comportamento_espontaneo !== false);
+    sincronizarToggle('stt_groq_se_cuda_ocupada', cfg.stt_groq_se_cuda_ocupada !== false);
 
     sincronizarSlider('vad_threshold', cfg.vad_threshold, 'val-vad_threshold',
         v => parseFloat(v).toFixed(2), v => Math.round(v * 100));
@@ -301,6 +302,9 @@ function sincronizarUI(cfg) {
         v => v + 'min', v => v);
     sincronizarSlider('espontaneo_limite_diario', cfg.espontaneo_limite_diario, 'val-espontaneo_limite',
         v => v + 'x', v => v);
+
+    let selProv = document.getElementById('select-llm_provedor');
+    if (selProv && cfg.llm_provedor) selProv.value = cfg.llm_provedor;
 
     let sel = document.getElementById('select-modelo');
     if (sel && cfg.modelo) sel.value = cfg.modelo;

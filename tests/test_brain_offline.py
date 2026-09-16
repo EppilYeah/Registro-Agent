@@ -56,6 +56,7 @@ def test_atualizar_dicionario_ignora_json_de_fala(monkeypatch):
     b._requisicoes_sessao = 5
     b.client = MagicMock()
     b.modelo_nome = "gemini-2.5-flash"
+    monkeypatch.setattr(b, "_ordem_efetiva", lambda: ["gemini"])
     b._sessao_atual = [{"autor": "Luis", "texto": "Meu nome é Luis Felipe"}]
     fake = MagicMock()
     fake.text = json.dumps({"emocao": "neutro", "texto_resposta": "Anotado."})
@@ -69,6 +70,7 @@ def test_atualizar_dicionario_salva_fatos(monkeypatch):
     b._requisicoes_sessao = 5
     b.client = MagicMock()
     b.modelo_nome = "gemini-2.5-flash"
+    monkeypatch.setattr(b, "_ordem_efetiva", lambda: ["gemini"])
     b._sessao_atual = [{"autor": "Luis", "texto": "Moro em Recife"}]
     fake = MagicMock()
     fake.text = json.dumps({"nome": "Luis Felipe", "cidade": "Recife"})
@@ -81,10 +83,11 @@ def test_atualizar_dicionario_salva_fatos(monkeypatch):
     assert "texto_resposta" not in dados
 
 
-def test_processar_entrada_sem_cliente_nao_trava():
+def test_processar_entrada_sem_cliente_nao_trava(monkeypatch):
     b = _brain_isolado()
     b.chat = None
     b.client = None
+    monkeypatch.setattr(b, "_ordem_efetiva", lambda: ["gemini"])
     b._encontrar_combinacao_funcional = MagicMock(return_value=None)
     dados = b.processar_entrada("oi")
     assert dados["emocao"] == "confuso"
@@ -104,9 +107,10 @@ class _Resposta:
         return self._text
 
 
-def test_processar_entrada_recupera_json_apos_afc_vazio():
+def test_processar_entrada_recupera_json_apos_afc_vazio(monkeypatch):
     b = _brain_isolado()
     b.client = MagicMock()
+    monkeypatch.setattr(b, "_ordem_efetiva", lambda: ["gemini"])
     chat = MagicMock()
     chat.send_message.side_effect = [
         _Resposta(explode=True),
@@ -117,3 +121,31 @@ def test_processar_entrada_recupera_json_apos_afc_vazio():
     assert dados["texto_resposta"] == "80%."
     assert chat.send_message.call_count == 2
     assert parsear_resposta_json('{"emocao": "neutro", "texto_resposta": "80%."}')["emocao"] == "neutro"
+
+
+def test_processar_entrada_429_honra_retry_after_e_cai_no_proximo(monkeypatch):
+    from app.core.quota import QuotaError
+
+    b = _brain_isolado()
+    monkeypatch.setattr(b, "_ordem_efetiva", lambda: ["groq", "gemini", "ollama"])
+    slept = []
+    monkeypatch.setattr("app.core.quota.time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(
+        b,
+        "_processar_groq",
+        lambda _p: (_ for _ in ()).throw(QuotaError("429", retry_after=3.0, provedor="groq")),
+    )
+    monkeypatch.setattr(
+        b,
+        "_processar_gemini",
+        lambda _p: (_ for _ in ()).throw(QuotaError("429 retryDelay: 60s", retry_after=60, provedor="gemini")),
+    )
+    monkeypatch.setattr(
+        b,
+        "_processar_ollama",
+        lambda _p: {"emocao": "neutro", "texto_resposta": "ok na cpu"},
+    )
+    dados = b.processar_entrada("oi")
+    assert dados["texto_resposta"] == "ok na cpu"
+    assert slept == [3.0, 15.0]
+    assert 60 not in slept

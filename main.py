@@ -25,6 +25,7 @@ LLM_TTS_TIMEOUT_SEC = 120
 _STT_RELOAD_KEYS = frozenset({
     "whisper_modelo", "whisper_device",
     "stt_post_speech_silence_sec", "stt_realtime_silero_sensitivity",
+    "stt_groq_se_cuda_ocupada",
 })
 
 audio = None
