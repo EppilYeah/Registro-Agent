@@ -267,6 +267,7 @@ function sincronizarUI(cfg) {
     sincronizarToggle('camera_ativa', cfg.camera_ativa !== false);
     sincronizarToggle('modo_debug', cfg.modo_debug === true);
     sincronizarToggle('comportamento_espontaneo', cfg.comportamento_espontaneo !== false);
+    sincronizarToggle('stt_groq_se_cuda_ocupada', cfg.stt_groq_se_cuda_ocupada !== false);
 
     sincronizarSlider('vad_threshold', cfg.vad_threshold, 'val-vad_threshold',
         v => parseFloat(v).toFixed(2), v => Math.round(v * 100));
@@ -274,6 +275,23 @@ function sincronizarUI(cfg) {
         v => parseFloat(v).toFixed(2), v => Math.round(v * 100));
     sincronizarSlider('vad_consecutivo', cfg.vad_consecutivo, 'val-vad_consecutivo',
         v => v, v => v);
+
+    sincronizarSlider('stt_vad_threshold', cfg.stt_vad_threshold, 'val-stt_vad_threshold',
+        v => parseFloat(v).toFixed(2), v => Math.round(Number(v) * 100));
+    sincronizarSlider('stt_vad_energia', cfg.stt_vad_energia, 'val-stt_vad_energia',
+        v => parseFloat(v).toFixed(2), v => Math.round(Number(v) * 100));
+    sincronizarSlider('stt_frames_silencio_fim', cfg.stt_frames_silencio_fim, 'val-stt_frames_silencio_fim',
+        v => v + ' (~' + Math.round(v * 32) + 'ms)', v => v);
+    sincronizarSlider('stt_min_frames_voz', cfg.stt_min_frames_voz, 'val-stt_min_frames_voz',
+        v => v, v => v);
+    sincronizarSlider('stt_post_speech_silence_sec', cfg.stt_post_speech_silence_sec, 'val-stt_post_speech_silence_sec',
+        v => parseFloat(v).toFixed(2) + 's', v => Math.round(Number(v) * 100));
+    sincronizarSlider('stt_realtime_silero_sensitivity', cfg.stt_realtime_silero_sensitivity, 'val-stt_realtime_silero_sensitivity',
+        v => parseFloat(v).toFixed(2), v => Math.round(Number(v) * 100));
+
+    let selBeam = document.getElementById('select-whisper_beam_size');
+    if (selBeam && cfg.whisper_beam_size != null) selBeam.value = String(cfg.whisper_beam_size);
+
     sincronizarSlider('energia_microfone', cfg.energia_microfone, 'val-energia_microfone',
         v => v, v => v);
     sincronizarSlider('modo_ambient_timeout_min', cfg.modo_ambient_timeout_min, 'val-ambient_timeout',
@@ -284,6 +302,9 @@ function sincronizarUI(cfg) {
         v => v + 'min', v => v);
     sincronizarSlider('espontaneo_limite_diario', cfg.espontaneo_limite_diario, 'val-espontaneo_limite',
         v => v + 'x', v => v);
+
+    let selProv = document.getElementById('select-llm_provedor');
+    if (selProv && cfg.llm_provedor) selProv.value = cfg.llm_provedor;
 
     let sel = document.getElementById('select-modelo');
     if (sel && cfg.modelo) sel.value = cfg.modelo;

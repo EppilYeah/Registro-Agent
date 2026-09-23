@@ -1,3 +1,4 @@
+import logging
 import time
 import threading
 
@@ -8,6 +9,8 @@ try:
 except ImportError:
     _WIN32 = False
     print("[JANELA] pywin32 não encontrado. Funções de janela desativadas.")
+
+logger = logging.getLogger(__name__)
 
 _TITULO = "REG / UI"
 _hwnd_cache = None
@@ -102,6 +105,7 @@ def trazer_para_frente():
     if not janela:
         return
     try:
+<<<<<<< HEAD
         janela.restore()
         janela.show()
     except Exception:
@@ -147,3 +151,9 @@ def mostrar():
         return True
     except Exception:
         return False
+=======
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception as e:
+        logger.debug("trazer_para_frente: %s", e)
+>>>>>>> 8814a4e48fba621b220bc27bf56d9045ef9e3590
