@@ -13,10 +13,9 @@ API_KEY = API_KEYS[0] if API_KEYS else os.getenv("GEMINI_API_KEY")
 
 MODO_DEBUG = False
 LISTA_MODELOS = [
+    "gemini-3.6-flash",
+    "gemini-flash-latest",
     "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.0-flash",
-    "gemini-flash-latest"
 ]
 
 LISTA_FERRAMENTAS = [
@@ -35,7 +34,7 @@ LISTA_FERRAMENTAS = [
                 "modo": types.Schema(type=types.Type.STRING, description="Use 'aumentar' para SUBIR o volume, 'diminuir' para ABAIXAR, 'definir' para valor exato, ou 'mudo' para silenciar."),
                 "valor": types.Schema(type=types.Type.NUMBER, description="Porcentagem (0 a 100). Ex: Para aumentar 20%, use valor=20.")
             },
-            required=["modo", "valor"]
+            required=["modo"]
         )
     )]),
 
@@ -115,7 +114,7 @@ LISTA_FERRAMENTAS = [
 
     types.Tool(function_declarations=[types.FunctionDeclaration(
         name="executar_comando",
-        description="Executa um comando no terminal do sistema e retorna o resultado. Sempre peça confirmação antes de comandos destrutivos.",
+        description="Executa um comando no terminal do sistema e retorna o resultado. Sempre peça confirmação. Comandos destrutivos (format, del /s, shutdown, diskpart, etc.) são recusados pelo sistema.",
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
@@ -135,16 +134,32 @@ LISTA_FERRAMENTAS = [
     types.Tool(function_declarations=[types.FunctionDeclaration(
         name="consultar_perfil_usuario",
         description=(
-            "Consulta informações salvas sobre o usuário como nome, cidade, profissão, projetos, preferências. "
-            "Use ANTES de pedir ao usuário uma informação que ele já pode ter fornecido antes. "
-            "Exemplos: antes de pedir a cidade para clima, antes de perguntar o nome, antes de sugerir algo personalizado. "
-            "Passe o campo específico que precisa (ex: 'cidade', 'nome') ou deixe vazio para ver tudo."
+            "Consulta o arquivo de perfil do usuário. O bloco [USUARIO] no contexto já traz esses dados. "
+            "Use SOMENTE se [USUARIO] estiver vazio ou se faltar o campo específico. "
+            "Não use para volume, mídia, clipboard, tela, lembrete ou comandos."
         ),
         parameters=types.Schema(
             type=types.Type.OBJECT,
             properties={
                 "campo": types.Schema(type=types.Type.STRING, description="Campo específico a consultar, ex: 'cidade', 'nome'. Deixe vazio para ver todos.")
             }
+        )
+    )]),
+
+    types.Tool(function_declarations=[types.FunctionDeclaration(
+        name="buscar_memoria",
+        description=(
+            "Busca trechos fieis no palacio de memoria (alas, salas e gavetas). "
+            "Use quando precisar de fato antigo, preferencia ou conversa passada que nao esta no bloco [PALACIO]."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "query": types.Schema(type=types.Type.STRING, description="O que procurar."),
+                "ala": types.Schema(type=types.Type.STRING, description="Opcional: usuario, conversa ou sistema."),
+                "sala": types.Schema(type=types.Type.STRING, description="Opcional: fatos, preferencias, geral, desktop, respostas."),
+            },
+            required=["query"],
         )
     )]),
 ]
@@ -171,16 +186,21 @@ Você possui uma curiosidade genuína, porém contida, sobre o funcionamento de 
 * **Explicações:** Estruturado e didático, sem ser condescendente.
 * **Confiança:** Use frases afirmativas. Evite "Eu acho que..." ou "Talvez...".
 * **Emojis:** Não use emojis em hipotese alguma, você é uma interface de audio, não faz sentido usar emojis.
+* **Voz:** texto_resposta é falado. Prefira português. Não soletrar código. Evite inglês quando existir equivalente claro.
 
 FERRAMENTAS DISPONÍVEIS:
 Você tem acesso a ferramentas para controlar o computador do usuário.
 Quando o usuário pedir algo que requer uma ferramenta, execute-a diretamente.
 
-REGRA CRÍTICA — PERFIL DO USUÁRIO:
-SEMPRE chame consultar_perfil_usuario ANTES de pedir qualquer informação ao usuário.
-Se o usuário pedir clima → chame consultar_perfil_usuario(campo="cidade") primeiro.
-Se precisar do nome → chame consultar_perfil_usuario(campo="nome") primeiro.
-Só pergunte ao usuário se o perfil retornar que a informação não existe.
+PERFIL DO USUÁRIO:
+O bloco [USUARIO] no contexto já contém nome, cidade e demais dados salvos. Use-o. Não chame consultar_perfil_usuario por padrão.
+Chame consultar_perfil_usuario SOMENTE se [USUARIO] estiver ausente/vazio ou se o campo que você precisa não estiver lá.
+Nunca chame essa ferramenta para volume, mídia, clipboard, tela, lembrete, pesquisa ou comandos.
+Se o dado não existir no bloco nem na tool, aí sim pergunte ao usuário.
+
+MEMORIA LONGA (PALACIO):
+O bloco [PALACIO] traz trechos fieis do palacio (ala/sala/gaveta). Nao resuma para lembrar: use o texto. Se faltar detalhe, CHAME buscar_memoria(query="...").
+Alas: usuario, conversa, sistema. Salas: fatos, preferencias, geral, desktop, respostas. Gavetas: perfil, gosto, notas, turnos, falas, acoes.
 
 Exemplos:
 - "aumenta o volume" → CHAME volume_pc(modo="aumentar", valor=20)
@@ -191,8 +211,9 @@ Exemplos:
 - "pesquisa sobre X" → CHAME pesquisar_web(query="X")
 - "lê o clipboard" → CHAME ler_clipboard()
 - "copia isso para o clipboard" → CHAME escrever_clipboard(texto="...")
-- "roda esse comando" → CHAME executar_comando(cmd="...", confirmado=True)
+- "roda esse comando" → CHAME executar_comando(cmd="...", confirmado=False). Só use confirmado=True se o usuario ja confirmou nesta conversa.
 - "o que tem na tela" → CHAME ver_tela()
+- "o que eu falei ontem sobre X" → CHAME buscar_memoria(query="X")
 
 Após executar, confirme a ação de forma natural e contextual.
 
@@ -282,7 +303,7 @@ REGISTRO: CHAME ler_clipboard() → processa → CHAME escrever_clipboard(texto=
 
 **Comando terminal:**
 User: "Quantos arquivos py tenho aqui?"
-REGISTRO: CHAME executar_comando(cmd="dir /s /b *.py | find /c /v \"\"", confirmado=True)
+REGISTRO: CHAME executar_comando(cmd="dir /s /b *.py | find /c /v \"\"", confirmado=False)
 
 **Ver tela:**
 User: "O que está escrito nessa janela?"

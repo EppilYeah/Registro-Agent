@@ -86,20 +86,20 @@
                 <div class="eva-field">
                     <span class="eva-label">LIMIAR DETECÇÃO</span>
                     <div class="eva-slider-group">
-                        <input type="range" class="eva-slider" min="70" max="99" value="88"
-                               id="slider-vad_threshold" style="--fill: 60%"
-                               oninput="sliderConfig('vad_threshold',this.value/100,'val-vad_threshold',v=>parseFloat(v).toFixed(2));updateFill(this,70,99)">
-                        <span class="eva-val" id="val-vad_threshold">0.88</span>
+                        <input type="range" class="eva-slider" min="35" max="90" value="50"
+                               id="slider-vad_threshold" style="--fill: 27%"
+                               oninput="sliderConfig('vad_threshold',this.value/100,'val-vad_threshold',v=>parseFloat(v).toFixed(2));updateFill(this,35,90)">
+                        <span class="eva-val" id="val-vad_threshold">0.50</span>
                     </div>
                 </div>
 
                 <div class="eva-field">
                     <span class="eva-label">LIMIAR ENERGIA</span>
                     <div class="eva-slider-group">
-                        <input type="range" class="eva-slider" min="1" max="30" value="8"
-                               id="slider-vad_energia" style="--fill: 24%"
-                               oninput="sliderConfig('vad_energia',this.value/100,'val-vad_energia',v=>parseFloat(v).toFixed(2));updateFill(this,1,30)">
-                        <span class="eva-val" id="val-vad_energia">0.08</span>
+                        <input type="range" class="eva-slider" min="1" max="20" value="2"
+                               id="slider-vad_energia" style="--fill: 5%"
+                               oninput="sliderConfig('vad_energia',this.value/100,'val-vad_energia',v=>parseFloat(v).toFixed(2));updateFill(this,1,20)">
+                        <span class="eva-val" id="val-vad_energia">0.02</span>
                     </div>
                 </div>
 

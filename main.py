@@ -7,6 +7,8 @@ from app.core.brain import Brain
 from app.core.audio import AudioHandler
 from app.core.vision import VisionHandler
 from app.services.system import Systemhandler
+from app.core.errors import Supervisor
+import janela
 
 print("INICIANDO REGISTRO")
 
@@ -20,7 +22,11 @@ _ultimo_acordar = time.time()
 
 def _js(codigo):
     try:
-        if _JANELA:
+        if not _JANELA:
+            return
+        try:
+            _JANELA.evaluate_js(codigo, lambda *_: None)
+        except TypeError:
             _JANELA.evaluate_js(codigo)
     except Exception as e:
         print(f"[JS] Erro ao executar '{codigo}': {e}")
@@ -42,9 +48,11 @@ sistema = Systemhandler(
     funcao_falar=audio.falar,
     funcao_gerar_texto=brain.gerar_texto_aleatorio,
     funcao_js=_js,
-    funcao_brain_client=brain.client
+    obter_client=lambda: brain.client,
+    obter_modelo=lambda: brain.modelo_nome,
 )
 brain.sistema = sistema
+supervisor = Supervisor(audio=audio, visao=visao, brain=brain, sistema=sistema)
 
 
 class API:
@@ -103,6 +111,8 @@ def ciclo_principal():
     global _em_conversa, _ultimo_acordar
 
     _ui_pronta.wait()
+    janela.registrar_webview(lambda: _JANELA)
+    janela.definir_sempre_visivel()
 
     print("REGISTRO INICIADO")
     audio.falar("REGISTRO INICIADO", "neutro")
@@ -128,6 +138,7 @@ def ciclo_principal():
                 _em_conversa = True
 
                 try:
+                    janela.trazer_para_frente()
                     _JANELA.restore()
                     _JANELA.resize(500, 500)
                     _JANELA.move(100, 100)
@@ -162,28 +173,46 @@ def ciclo_principal():
                         audio.preparar_ouvir()
                         audio.prequecer()
 
-                        tts_iniciado = threading.Event()
-                        tts_result = [False]
+                        pronta = threading.Event()
+                        dados_box = [None]
+                        t_llm = time.time()
 
                         def _on_resposta(dados):
-                            emocao = dados["emocao"]
-                            texto = dados["texto_resposta"]
-                            _atualizar_rosto(emocao, True)
-                            tts_result[0] = audio.falar(texto, emocao)
-                            _atualizar_rosto(emocao, False)
-                            tts_iniciado.set()
+                            if dados_box[0] is None:
+                                dados_box[0] = dados
+                                pronta.set()
 
-                        thread_llm = threading.Thread(
-                            target=brain.processar_entrada,
-                            args=(comando_atual,),
-                            kwargs={"on_resposta": _on_resposta},
-                            daemon=True
-                        )
+                        def _rodar_llm():
+                            try:
+                                brain.processar_entrada(comando_atual, on_resposta=_on_resposta)
+                            finally:
+                                pronta.set()
+
+                        thread_llm = threading.Thread(target=_rodar_llm, daemon=True)
                         thread_llm.start()
-                        tts_iniciado.wait()
-                        thread_llm.join()
+                        if not pronta.wait(32):
+                            print("[LAT] llm timeout 32s")
+                            if dados_box[0] is None:
+                                dados_box[0] = {
+                                    "emocao": "neutro",
+                                    "texto_resposta": "A API nao respondeu a tempo.",
+                                }
+                        print(f"[LAT] llm={time.time() - t_llm:.2f}s")
 
-                        foi_interrompido = tts_result[0]
+                        dados = dados_box[0] or {}
+                        texto = (dados.get("texto_resposta") or "").strip()
+                        emocao = dados.get("emocao") or "neutro"
+                        foi_interrompido = False
+                        if texto:
+                            _atualizar_rosto(emocao, True)
+                            t_tts = time.time()
+                            foi_interrompido = audio.falar(texto, emocao)
+                            print(f"[LAT] tts={time.time() - t_tts:.2f}s")
+                            _atualizar_rosto(emocao, False)
+                        else:
+                            print("[LAT] turno sem texto")
+
+                        thread_llm.join(timeout=8)
                         comando_atual = None
 
                         if foi_interrompido:
@@ -210,6 +239,15 @@ def ciclo_principal():
         except Exception as e:
             print(f"[ERRO CRITICO] {e}")
             _em_conversa = False
+            dados = supervisor.tratar(e, turno_ativo=True)
+            if dados:
+                try:
+                    emocao = dados.get("emocao", "confuso")
+                    _atualizar_rosto(emocao, True)
+                    audio.falar(dados.get("texto_resposta", ""), emocao)
+                    _atualizar_rosto("neutro", False)
+                except Exception:
+                    pass
             time.sleep(1)
 
 

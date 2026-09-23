@@ -8,7 +8,10 @@ import threading
 import traceback
 import sys
 import config
+import settings
 from datetime import datetime, date
+from app.core.errors import classificar, para_rosto, do_catalogo
+from app.core.palace import get_palace
 
 from google import genai
 from google.genai import types
@@ -33,10 +36,12 @@ class Brain:
         self._perfil = self._carregar_perfil()
         self._sessao_atual = []
         self._ultimo_resumo_sessao = ""
+        self.palace = get_palace()
 
         self._log_chaves()
         self.chat = self._encontrar_combinacao_funcional()
         self.sistema = None
+        self.supervisor = None
 
         self._callback_espontaneo = None
         self._thread_espontaneo = None
@@ -59,7 +64,19 @@ class Brain:
             time.sleep(1)
         print("\nQuota resetada.\n")
 
-    def _encontrar_combinacao_funcional(self):
+    def _novo_client(self, chave, timeout_ms):
+        try:
+            return genai.Client(api_key=chave, http_options={"timeout": timeout_ms})
+        except Exception:
+            try:
+                return genai.Client(
+                    api_key=chave,
+                    http_options=types.HttpOptions(timeout=timeout_ms),
+                )
+            except Exception:
+                return genai.Client(api_key=chave)
+
+    def _encontrar_combinacao_funcional(self, excluir=None):
         todas_chaves = list(config.API_KEYS) if config.API_KEYS else [config.API_KEY]
         todos_modelos = list(config.LISTA_MODELOS)
 
@@ -71,26 +88,32 @@ class Brain:
         ]
 
         config_obj = types.GenerateContentConfig(
-            temperature=1.0,
-            top_p=0.95,
+            temperature=0.7,
+            top_p=0.9,
             top_k=40,
+            max_output_tokens=320,
             safety_settings=safety_settings,
             tools=getattr(config, 'LISTA_FERRAMENTAS', [])
         )
 
         tentativas_reset = 0
+        pulados = {m for m in (excluir or []) if m}
         while True:
             for idx_chave, chave in enumerate(todas_chaves):
-                client = genai.Client(api_key=chave)
+                ping = self._novo_client(chave, 8000)
                 print(f"\n[API] Chave {idx_chave + 1}/{len(todas_chaves)}: ...{chave[-4:]}")
                 for modelo in todos_modelos:
+                    if modelo in pulados:
+                        print(f"  [{modelo}]... PULA")
+                        continue
                     try:
                         print(f"  [{modelo}]...", end=" ", flush=True)
-                        client.models.generate_content(
+                        ping.models.generate_content(
                             model=modelo,
                             contents=".",
                             config=types.GenerateContentConfig(max_output_tokens=1)
                         )
+                        client = self._novo_client(chave, 45000)
                         chat = client.chats.create(
                             model=modelo,
                             config=config_obj,
@@ -103,10 +126,21 @@ class Brain:
                         return chat
                     except Exception as e:
                         erro = str(e).lower()
-                        if any(x in erro for x in ["429", "quota", "resource_exhausted"]):
+                        if any(x in erro for x in ("404", "not_found", "no longer available")):
+                            print("FORA")
+                        elif any(x in erro for x in (
+                            "timeout", "timed out", "deadline", "504", "503", "unavailable",
+                        )):
+                            print("TIMEOUT")
+                        elif any(x in erro for x in ("429", "quota", "resource_exhausted")):
                             print("SEM COTA")
                         else:
-                            print(f"ERRO: {e}")
+                            print(f"ERRO: {str(e)[:140]}")
+
+            if pulados:
+                print("[API] Sem alternativa. Tentando modelos pulados.")
+                pulados = set()
+                continue
 
             tentativas_reset += 1
             print(f"\n{'='*60}\nAVISO: NENHUMA COMBINACAO FUNCIONOU (tentativa {tentativas_reset})\n{'='*60}")
@@ -170,6 +204,10 @@ class Brain:
             if len(self._resumos_cache) > 15:
                 self._resumos_cache.pop(0)
             print(f"[RESUMO] Sessao registrada: {resumo[:60]}...")
+            try:
+                self.palace.guardar(resumo, "REGISTRO", wing="conversa", room="resumos", drawer="sessoes")
+            except Exception:
+                pass
         except Exception as e:
             print(f"[RESUMO] Erro: {e}")
 
@@ -209,9 +247,15 @@ class Brain:
             return self._memoria_cache
 
     def _eh_pedido_de_resumo(self, prompt):
-        palavras = {"resum", "histor", "sess", "conversa", "lembra", "falei", "falamos", "anterior", "passad", "ultimo", "ultim"}
         p = prompt.lower()
-        return any(w in p for w in palavras)
+        frases = (
+            "resumo", "resumir", "historico", "histórico",
+            "sessao anterior", "sessão anterior",
+            "o que falamos", "o que a gente falou",
+            "conversa anterior", "ultima sessao", "última sessão",
+            "o que eu falei",
+        )
+        return any(f in p for f in frases)
 
     def _resumo_historico_para_prompt(self):
         entradas = self._ler_historico_completo()
@@ -298,6 +342,12 @@ class Brain:
         self._sessao_atual.append(entry)
         if len(self._memoria_cache) > 100:
             self._memoria_cache.pop(0)
+        def _guardar_bg():
+            try:
+                self.palace.guardar(texto, autor)
+            except Exception as e:
+                print("[PALACE] %s" % e, flush=True)
+        threading.Thread(target=_guardar_bg, daemon=True).start()
 
     def _calcular_relevancia(self, prompt, entrada):
         palavras_prompt = set(re.findall(r'\w+', prompt.lower()))
@@ -317,6 +367,12 @@ class Brain:
         sistema_context = config.PROMPT_PERSONALIDADE + "\n\n" + perfil_context
         if usuario_context:
             sistema_context += "\n" + usuario_context
+        try:
+            wake = self.palace.wake_up()
+            if wake:
+                sistema_context += "\n\n" + wake[:900]
+        except Exception:
+            pass
 
         hist = [
             types.Content(role="user", parts=[types.Part.from_text(text=sistema_context)]),
@@ -334,12 +390,32 @@ class Brain:
     def _verificar_rate_limit(self):
         agora = time.time()
         self.chamadas_ultimo_minuto = [t for t in self.chamadas_ultimo_minuto if agora - t < 60]
-        if len(self.chamadas_ultimo_minuto) >= 12:
-            espera = 61 - (agora - self.chamadas_ultimo_minuto[0])
-            print(f"AVISO: Rate limit. Aguardando {espera:.1f}s...")
-            time.sleep(espera)
-            self.chamadas_ultimo_minuto.clear()
+        if len(self.chamadas_ultimo_minuto) >= 14:
+            print("[API] Rate alto neste minuto. Seguindo sem espera.")
         self.chamadas_ultimo_minuto.append(agora)
+
+    def _contexto_palacio(self, prompt):
+        p = (prompt or "").strip()
+        if len(p) < 28:
+            return ""
+        baixo = p.lower()
+        if not any(x in baixo for x in (
+            "lembra", "esqueci", "anota", "qual era", "o que eu", "meu nome",
+            "disse", "combinamos", "guarda",
+        )):
+            return ""
+        box = [""]
+        def _buscar():
+            try:
+                box[0] = self.palace.recuperar_texto(p) or ""
+            except Exception as e:
+                print("[PALACE] Recuperacao: %s" % e, flush=True)
+        t = threading.Thread(target=_buscar, daemon=True)
+        t.start()
+        t.join(0.4)
+        if t.is_alive():
+            print("[LAT] palace skip >0.4s")
+        return box[0]
 
     def _executar_ferramentas(self, res, tentativa):
         turnos = 0
@@ -348,7 +424,7 @@ class Brain:
 
         while True:
             function_calls = []
-            if res.candidates and res.candidates[0].content and res.candidates[0].content.parts:
+            if res and res.candidates and res.candidates[0].content and res.candidates[0].content.parts:
                 function_calls = [p.function_call for p in res.candidates[0].content.parts if p.function_call]
 
             if not function_calls or turnos >= 5:
@@ -358,16 +434,17 @@ class Brain:
             partes_resposta = []
 
             for fc in function_calls:
-                print(f"[TOOL] {fc.name}({dict(fc.args)})")
-                if self.sistema and hasattr(self.sistema, fc.name):
-                    try:
-                        retorno = getattr(self.sistema, fc.name)(**dict(fc.args))
-                        ultimo_retorno = retorno
-                        ultimo_tool = fc.name
-                    except Exception as e:
-                        retorno = f"Erro: {e}"
+                try:
+                    args = dict(fc.args) if fc.args else {}
+                except Exception:
+                    args = {}
+                print(f"[TOOL] {fc.name}({args})")
+                if self.sistema:
+                    retorno = self.sistema.executar(fc.name, **args)
                 else:
-                    retorno = f"'{fc.name}' nao existe"
+                    retorno = f"'{fc.name}' não existe"
+                ultimo_retorno = retorno
+                ultimo_tool = fc.name
 
                 print(f"[RESULT] {str(retorno)[:80]}")
                 partes_resposta.append(
@@ -378,7 +455,9 @@ class Brain:
                 )
 
             try:
+                t_tool = time.time()
                 res = self.chat.send_message(partes_resposta)
+                print(f"[LAT] gemini_tool={time.time() - t_tool:.2f}s")
             except Exception as e:
                 if any(x in str(e).lower() for x in ["429", "quota"]):
                     print("[QUOTA] Sem cota pos-tool.")
@@ -405,22 +484,21 @@ class Brain:
         except:
             pass
         print("[JSON] Erro. Pedindo correcao...")
-        for tentativa in range(2):
+        try:
+            correcao = self.chat.send_message(
+                "ERRO: Retorne APENAS:\n"
+                '{"emocao": "escolha_uma", "texto_resposta": "texto"}'
+            )
+            txt_c = correcao.text.replace("```json", "").replace("```", "").strip()
             try:
-                correcao = self.chat.send_message(
-                    "ERRO: Retorne APENAS:\n"
-                    '{"emocao": "escolha_uma", "texto_resposta": "texto"}'
-                )
-                txt_c = correcao.text.replace("```json", "").replace("```", "").strip()
-                try:
-                    return json.loads(txt_c)
-                except:
-                    match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_c, re.DOTALL)
-                    if match:
-                        return json.loads(match.group(0))
-            except Exception as e:
-                print(f"[JSON] Tentativa {tentativa+1}/2 falhou: {e}")
-        return {"emocao": "confuso", "texto_resposta": texto[:300]}
+                return json.loads(txt_c)
+            except:
+                match = re.search(r'\{.*?"emocao".*?"texto_resposta".*?\}', txt_c, re.DOTALL)
+                if match:
+                    return json.loads(match.group(0))
+        except Exception as e:
+            print(f"[JSON] Correcao falhou: {e}")
+        return para_rosto(do_catalogo("json_rosto"))
 
     def _tentar_parsear_parcial(self, texto):
         try:
@@ -570,11 +648,12 @@ class Brain:
 
         limite = len(config.API_KEYS) * len(config.LISTA_MODELOS) + 1
         if tentativa >= limite:
-            dados = {"emocao": "confuso", "texto_resposta": "AVISO: Todas cotas esgotadas."}
+            dados = para_rosto(do_catalogo("cota"))
+            dados["texto_resposta"] = "AVISO: Todas cotas esgotadas."
             if on_resposta: on_resposta(dados)
             return dados
 
-        if getattr(config, 'MODO_DEBUG', False):
+        if settings.get("modo_debug"):
             dados = {"emocao": "neutro", "texto_resposta": "Debug ativo"}
             if on_resposta: on_resposta(dados)
             return dados
@@ -582,9 +661,14 @@ class Brain:
         self._verificar_rate_limit()
 
         prompt_efetivo = prompt
+        t_pal = time.time()
+        palacio = self._contexto_palacio(prompt)
+        if palacio:
+            prompt_efetivo = palacio + "\n\nUsuario: " + prompt
+        print(f"[LAT] palace={time.time() - t_pal:.2f}s")
         if self._eh_pedido_de_resumo(prompt):
             bloco = self._resumo_historico_para_prompt()
-            prompt_efetivo = f"{bloco}\n\nPedido: {prompt}"
+            prompt_efetivo = f"{bloco}\n\n{prompt_efetivo}"
 
         if tentativa == 0:
             self._registrar_memoria(prompt, "Luis")
@@ -596,31 +680,41 @@ class Brain:
             texto_acumulado = ""
             callback_disparado = False
             tem_function_call = False
+            ultimo_fc_chunk = None
+            t_api = time.time()
 
-            try:
-                stream = self.chat.send_message_stream(prompt_efetivo)
-                for chunk in stream:
-                    if hasattr(chunk, 'candidates') and chunk.candidates:
-                        for part in (chunk.candidates[0].content.parts or []):
-                            if hasattr(part, 'function_call') and part.function_call:
-                                tem_function_call = True
-                    if chunk.text:
-                        texto_acumulado += chunk.text
-                        if on_resposta and not callback_disparado and not tem_function_call:
-                            dados_parciais = self._tentar_parsear_parcial(texto_acumulado)
-                            if dados_parciais:
-                                callback_disparado = True
-                                on_resposta(dados_parciais)
+            stream = self.chat.send_message_stream(prompt_efetivo)
+            for chunk in stream:
+                if hasattr(chunk, "candidates") and chunk.candidates:
+                    content = chunk.candidates[0].content
+                    parts = content.parts if content and getattr(content, "parts", None) else []
+                    for part in parts:
+                        if getattr(part, "function_call", None):
+                            tem_function_call = True
+                            ultimo_fc_chunk = chunk
+                if tem_function_call:
+                    continue
+                try:
+                    trecho = chunk.text
+                except (ValueError, AttributeError):
+                    trecho = None
+                if trecho:
+                    texto_acumulado += trecho
+                    if on_resposta and not callback_disparado:
+                        dados_parciais = self._tentar_parsear_parcial(texto_acumulado)
+                        if dados_parciais:
+                            callback_disparado = True
+                            on_resposta(dados_parciais)
 
-                if tem_function_call or not texto_acumulado.strip():
-                    raise AttributeError("fallback")
+            print(f"[LAT] gemini_stream={time.time() - t_api:.2f}s fc={tem_function_call}")
 
-                res_text = texto_acumulado
-
-            except AttributeError as ae:
-                if "fallback" not in str(ae):
-                    raise
+            res = None
+            if tem_function_call:
+                res = ultimo_fc_chunk or self.chat.send_message(prompt_efetivo)
+            elif not texto_acumulado.strip():
                 res = self.chat.send_message(prompt_efetivo)
+
+            if res is not None:
                 if res.candidates and str(res.candidates[0].finish_reason) in ["SAFETY", "FinishReason.SAFETY", "1", "3"]:
                     print("[BRAIN] Bloqueio detectado.")
                     self.chat = self._encontrar_combinacao_funcional()
@@ -639,6 +733,8 @@ class Brain:
                     dados = {"emocao": "sarcasmo_tedio", "texto_resposta": "O modelo censurou minha resposta."}
                     if on_resposta and not callback_disparado: on_resposta(dados)
                     return dados
+            else:
+                res_text = texto_acumulado
 
             dados = self._parsear_json(res_text)
             if not isinstance(dados, dict):
@@ -655,20 +751,46 @@ class Brain:
             return dados
 
         except Exception as e:
-            erro_str = str(e).lower()
-            if any(x in erro_str for x in ["429", "quota", "resource_exhausted"]):
+            erro = classificar(e)
+            if erro.codigo == "cota":
                 print(f"[QUOTA] Cota esgotada em {self.modelo_nome}. Procurando alternativa...")
-                self.chat = self._encontrar_combinacao_funcional()
-                return self.processar_entrada(prompt, on_resposta, tentativa + 1)
+                if self.supervisor:
+                    ok = self.supervisor.reparar("cota")
+                else:
+                    self.chat = self._encontrar_combinacao_funcional()
+                    ok = True
+                if ok:
+                    return self.processar_entrada(prompt, on_resposta, tentativa + 1)
+                dados = para_rosto(erro)
+                if on_resposta: on_resposta(dados)
+                return dados
 
-            if "finish_reason" in erro_str or "valid part" in erro_str:
-                self.chat = self._encontrar_combinacao_funcional()
-                dados = {"emocao": "irritado", "texto_resposta": "Historico reiniciado."}
+            if erro.codigo == "api_ocupada":
+                print(f"[API] Timeout/503 em {self.modelo_nome}.")
+                if self.supervisor:
+                    ok = self.supervisor.reparar("api_ocupada")
+                else:
+                    time.sleep(3)
+                    ok = True
+                if ok:
+                    return self.processar_entrada(prompt, on_resposta, tentativa + 1)
+                dados = para_rosto(erro)
+                if on_resposta: on_resposta(dados)
+                return dados
+
+            if "finish_reason" in str(e).lower() or "valid part" in str(e).lower():
+                if self.supervisor:
+                    self.supervisor.reparar("cota")
+                else:
+                    self.chat = self._encontrar_combinacao_funcional()
+                dados = para_rosto(erro)
                 if on_resposta: on_resposta(dados)
                 return dados
 
             traceback.print_exc()
-            dados = {"emocao": "confuso", "texto_resposta": "Erro no processamento."}
+            if self.supervisor and erro.recuperavel:
+                self.supervisor.reparar(erro.codigo)
+            dados = para_rosto(erro)
             if on_resposta: on_resposta(dados)
             return dados
 

@@ -7,11 +7,11 @@ _CAMINHO = os.path.join(_DIR, "data", "settings.json")
 _PADROES = {
     "vad_ativo": True,
     "camera_ativa": True,
-    "vad_threshold": 0.88,
-    "vad_energia": 0.08,
+    "vad_threshold": 0.5,
+    "vad_energia": 0.02,
     "vad_consecutivo": 8,
     "energia_microfone": 300,
-    "modelo": "gemini-2.5-flash",
+    "modelo": "gemini-flash-latest",
     "modo_debug": False,
     "comportamento_espontaneo": True,
     "espontaneo_cooldown_min": 20,
@@ -20,6 +20,8 @@ _PADROES = {
     "dormindo_timeout_min": 15,
     "whisper_modelo": "base",
     "whisper_device": "cpu",
+    "palace_path": "",
+    "palace_max_distancia": 0.0,
 }
 
 _cfg = {}

@@ -25,6 +25,8 @@ class VisionHandler:
         self.smooth_x = 0.0
         self.smooth_y = 0.0
         self._ultimo_envio_js = 0.0
+        self.supervisor = None
+        self._falhas_frame = 0
 
     def iniciar(self):
         if self.rodando: return
@@ -37,7 +39,24 @@ class VisionHandler:
     def parar(self):
         self.rodando = False
         if self.cap:
-            self.cap.release()
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
+
+    def reabrir_cap(self):
+        if self.cap:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+        self.cap = cv2.VideoCapture(0)
+        self.prev_gray = None
+        self._falhas_frame = 0
+        ok = self.cap is not None and self.cap.isOpened()
+        print(f"[VISAO] Camera reaberta: {ok}")
+        return ok
 
     def _loop_visao(self):
         print("[VISAO] ")
@@ -50,15 +69,30 @@ class VisionHandler:
 
         frame_count = 0
 
-        while self.rodando and self.cap.isOpened():
+        while self.rodando:
+            if not self.cap or not self.cap.isOpened():
+                if self.supervisor:
+                    self.supervisor.reparar("visao")
+                else:
+                    time.sleep(1)
+                    continue
+                if not self.cap or not self.cap.isOpened():
+                    time.sleep(1)
+                    continue
+
             if not settings.get("camera_ativa"):
                 time.sleep(0.2)
                 continue
 
             success, frame = self.cap.read()
             if not success:
+                self._falhas_frame += 1
+                if self._falhas_frame >= 5 and self.supervisor:
+                    self.supervisor.reparar("visao")
+                    self._falhas_frame = 0
                 time.sleep(1)
                 continue
+            self._falhas_frame = 0
 
             frame_count += 1
             if frame_count % 2 != 0:

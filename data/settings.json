@@ -1,8 +1,8 @@
 {
   "vad_ativo": true,
   "camera_ativa": false,
-  "vad_threshold": 0.88,
-  "vad_energia": 0.08,
+  "vad_threshold": 0.5,
+  "vad_energia": 0.02,
   "vad_consecutivo": 8,
   "energia_microfone": 358,
   "modelo": "gemini-2.5-flash",
@@ -13,5 +13,5 @@
   "modo_ambient_timeout_min": 5,
   "dormindo_timeout_min": 15,
   "whisper_modelo": "small",
-  "whisper_device": "cuda"
+  "whisper_device": "cpu"
 }
